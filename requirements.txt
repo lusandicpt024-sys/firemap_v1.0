@@ -1,0 +1,52 @@
+# Forest Fire Simulation Requirements
+
+# Core data science packages
+pandas>=1.5.0
+numpy>=1.21.0
+
+# Visualization packages  
+folium>=0.14.0
+matplotlib>=3.5.0
+
+# Machine Learning / AI packages
+torch>=1.11.0
+torchvision>=0.12.0
+
+# Geospatial data processing
+osmium>=3.6.0
+
+# Additional dependencies for enhanced functionality
+branca>=0.6.0
+
+# Standard library packages (usually included with Python)
+# These don't need to be installed separately:
+# - csv
+# - json  
+# - random
+# - math
+# - datetime
+# - os
+# - sys
+# - subprocess
+# - pathlib
+# - time
+# - typing
+# - collections (for deque)
+
+# Installation instructions:
+# 1. Navigate to your firemap directory in PowerShell:
+#    cd "c:\Users\wtc\firemap_v1.0"
+#
+# 2. Install all requirements:
+#    pip install -r requirements.txt
+#
+# 3. For OSM processing, you may also need osmium-tool command line utility:
+#    Windows: Download from https://osmcode.org/osmium-tool/
+#    Linux: sudo apt-get install osmium-tool
+#    macOS: brew install osmium-tool
+#
+# 4. Run the clean pipeline:
+#    python run_all_simple.py
+#
+# 5. Optional: Clean up outdated files:
+#    python cleanup_codebase.py
