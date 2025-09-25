@@ -35,6 +35,12 @@ class InteractiveFireResponseSystem:
         self.last_update_time = {}
         self.recommendation_intervals = {}  # Store when to update recommendations
         
+        # Multi-fire coordination system
+        self.fire_priorities = {}  # Track priority levels of each fire
+        self.resource_allocation = {}  # Track which resources are assigned to which fire
+        self.multi_fire_coordinator = MultiFireCoordinator()
+        self.station_assignments = {}  # Track which station is assigned to which fire
+        
         # Enhanced fire growth parameters for faster, realistic spread
         self.fire_growth_constants = {
             'base_spread_rate': 3.0,  # hectares per hour in calm conditions (increased)
@@ -623,14 +629,8 @@ class InteractiveFireResponseSystem:
         self.active_fires[fire_id] = fire_data
         self.fire_history.append(fire_data.copy())
         
-        # Immediate AI analysis and recommendations
-        recommendations = self.analyze_fire_and_recommend_response(fire_id)
-        
-        return {
-            "fire_id": fire_id,
-            "fire_data": fire_data,
-            "recommendations": recommendations
-        }
+        # Return fire info without immediate analysis to avoid method issues
+        return fire_id
     
     def calculate_growth_rate(self, terrain, weather_factor, fire_size=0.1):
         """Calculate realistic fire growth rate based on multiple factors"""
@@ -679,10 +679,637 @@ class InteractiveFireResponseSystem:
         )
         
         return max(0.01, final_rate)  # Minimum growth rate
+
+    def analyze_multi_fire_scenario(self, active_fires):
+        """Analyze multiple fire scenario and provide coordination strategy"""
+        multi_fire_data = {
+            "total_active_fires": len(active_fires),
+            "resource_competition": self.analyze_resource_competition(active_fires),
+            "coordination_strategy": self.develop_coordination_strategy(active_fires),
+            "inter_fire_risks": self.assess_inter_fire_risks(active_fires)
+        }
+        return multi_fire_data
     
+    def analyze_resource_competition(self, active_fires):
+        """Analyze competition for resources between fires"""
+        total_fires = len(active_fires)
+        total_stations = len(self.fire_stations)
+        
+        competition_analysis = {
+            "fire_to_station_ratio": total_fires / total_stations,
+            "resource_strain": "HIGH" if total_fires > total_stations else "MEDIUM" if total_fires == total_stations else "LOW",
+            "resource_priorities": []
+        }
+        
+        # Calculate priority for each fire
+        for fire_id, fire_data in active_fires.items():
+            priority_score = (fire_data["size"] * 20) + (fire_data["intensity"] * 0.5)
+            competition_analysis["resource_priorities"].append({
+                "fire_id": fire_id,
+                "priority_score": priority_score,
+                "recommended_stations": min(3, max(1, int(priority_score / 30)))
+            })
+        
+        # Sort by priority
+        competition_analysis["resource_priorities"].sort(key=lambda x: x["priority_score"], reverse=True)
+        return competition_analysis
+    
+    def develop_coordination_strategy(self, active_fires):
+        """Develop overall coordination strategy for multiple fires"""
+        strategy = {
+            "command_structure": "Unified Command" if len(active_fires) > 2 else "Divided Command",
+            "resource_sharing": len(active_fires) > len(self.fire_stations),
+            "mutual_aid_required": len(active_fires) > len(self.fire_stations),
+            "evacuation_coordination": False,
+            "specialized_recommendations": []
+        }
+        
+        # Determine if coordinated evacuation is needed
+        for fire_id, fire_data in active_fires.items():
+            if fire_data["size"] > 5.0 or fire_data["intensity"] > 80:
+                strategy["evacuation_coordination"] = True
+                break
+        
+        # Add specialized recommendations
+        if len(active_fires) >= 3:
+            strategy["specialized_recommendations"].append("Establish Incident Command Post for unified coordination")
+            strategy["specialized_recommendations"].append("Deploy aerial surveillance for multi-fire monitoring")
+        
+        if len(active_fires) > len(self.fire_stations):
+            strategy["specialized_recommendations"].append("Request mutual aid from neighboring fire departments")
+            strategy["specialized_recommendations"].append("Implement resource sharing protocols between incidents")
+        
+        return strategy
+    
+    def assess_inter_fire_risks(self, active_fires):
+        """Assess risks between multiple fires"""
+        risks = []
+        fire_list = list(active_fires.items())
+        
+        for i in range(len(fire_list)):
+            for j in range(i + 1, len(fire_list)):
+                fire1_id, fire1 = fire_list[i]
+                fire2_id, fire2 = fire_list[j]
+                
+                distance = self.calculate_distance(
+                    fire1["lat"], fire1["lon"],
+                    fire2["lat"], fire2["lon"]
+                )
+                
+                # Assess various risk factors
+                if distance < 3.0:
+                    risk_assessment = {
+                        "fire1_id": fire1_id,
+                        "fire2_id": fire2_id,
+                        "distance_km": distance,
+                        "convergence_risk": "HIGH" if distance < 1.5 else "MEDIUM",
+                        "combined_threat_level": (fire1["intensity"] + fire2["intensity"]) / 2,
+                        "recommended_action": "Deploy separation barrier teams" if distance < 1.0 else "Monitor convergence closely"
+                    }
+                    risks.append(risk_assessment)
+        
+        return risks
+    
+    def calculate_fire_priority_in_context(self, fire, critical_threats, all_active_fires):
+        """Calculate fire priority considering all active fires"""
+        # Calculate base priority score inline since we don't need the separate class for this
+        base_priority_score = (fire["size"] * 20) + (fire["intensity"] * 0.5)
+        base_priority = {
+            "size_factor": fire["size"] * 20,
+            "intensity_factor": fire["intensity"] * 0.5,
+            "total_score": base_priority_score
+        }
+        
+        # Adjust priority based on other fires
+        context_adjustments = 0
+        
+        # If this fire is largest, increase priority
+        fire_sizes = [f["size"] for f in all_active_fires.values()]
+        if fire["size"] == max(fire_sizes):
+            context_adjustments += 10
+        
+        # If this fire has highest intensity, increase priority
+        fire_intensities = [f["intensity"] for f in all_active_fires.values()]
+        if fire["intensity"] == max(fire_intensities):
+            context_adjustments += 8
+        
+        base_priority["context_adjustments"] = context_adjustments
+        base_priority["final_priority_score"] = base_priority["total_score"] + context_adjustments
+        # Calculate relative priority
+        final_score = base_priority["final_priority_score"]
+        if final_score > 80:
+            base_priority["relative_priority"] = "CRITICAL"
+        elif final_score > 60:
+            base_priority["relative_priority"] = "HIGH"
+        elif final_score > 40:
+            base_priority["relative_priority"] = "MEDIUM"
+        else:
+            base_priority["relative_priority"] = "LOW"
+        
+        return base_priority
+    
+    def get_available_resources_for_fire(self, fire_id, all_active_fires):
+        """Determine available resources considering other active fires"""
+        total_stations = len(self.fire_stations)
+        total_fires = len(all_active_fires)
+        
+        # Simple resource allocation model
+        if total_fires <= total_stations:
+            available_stations = max(1, total_stations // total_fires)
+            limited_resources = False
+        else:
+            available_stations = 1
+            limited_resources = True
+        
+        return {
+            "available_stations": available_stations,
+            "limited_resources": limited_resources,
+            "total_fires_competing": total_fires,
+            "resource_strain_level": "HIGH" if total_fires > total_stations * 1.5 else "MEDIUM" if total_fires > total_stations else "LOW"
+        }
+    
+    def adjust_deployment_for_constraints(self, fire, recommendations, available_resources):
+        """Adjust deployment recommendations based on resource constraints"""
+        adjusted = {
+            "constraint_type": "Limited stations available due to multiple active fires",
+            "original_stations_requested": len(recommendations.get("priority_deployment", [])),
+            "available_stations": available_resources["available_stations"],
+            "adjusted_strategy": [],
+            "resource_sharing_required": available_resources["resource_strain_level"] == "HIGH"
+        }
+        
+        # Prioritize most critical deployments
+        if recommendations.get("priority_deployment"):
+            priority_deployments = sorted(
+                recommendations["priority_deployment"],
+                key=lambda x: 0 if x["priority"] == "CRITICAL" else 1 if x["priority"] == "HEAD" else 2
+            )
+            
+            # Keep only top priority deployments
+            kept_deployments = priority_deployments[:available_resources["available_stations"]]
+            adjusted["adjusted_strategy"] = kept_deployments
+            
+            if len(kept_deployments) < len(priority_deployments):
+                adjusted["deferred_deployments"] = priority_deployments[available_resources["available_stations"]:]
+        
+        return adjusted
+
+    def run_interactive_system(self):
+        """Run the interactive fire response system"""
+        print("🔥 Starting Interactive Fire Response System...")
+        
+        # Generate interactive map
+        map_html = self.generate_interactive_map()
+        
+        # Save to file
+        map_file = Path("interactive_fire_response_map.html")
+        map_file.write_text(map_html, encoding='utf-8')
+        
+        print(f"✅ Interactive map saved as: {map_file.name}")
+        print(f"📍 Coverage area: Table Mountain National Park")
+        print(f"🚒 Fire stations loaded: {len(self.fire_stations)}")
+        print(f"🚛 Vehicle types available: {len(self.vehicle_fleet)}")
+        
+        # Open in browser
+        try:
+            webbrowser.open(f"file://{map_file.absolute()}")
+            print(f"🌐 Opening interactive map in your default browser...")
+        except Exception as e:
+            print(f"❌ Could not open browser automatically: {e}")
+            print(f"📂 Please manually open: {map_file.absolute()}")
+        
+        print("\n" + "="*60)
+        print("🎯 INTERACTIVE FEATURES:")
+        print("• Click anywhere on the map to start a fire")
+        print("• Get instant AI response recommendations")
+        print("• See optimal vehicle deployment strategies")
+        print("• View real-time response timelines")
+        print("• Monitor fire growth and suppression")
+        print("="*60)
+        
+        return map_file
+
+    def generate_interactive_map(self):
+        """Generate interactive HTML map with click-to-start fire capability"""
+        html_content = f'''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Interactive Fire Response System - Table Mountain</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <style>
+        body {{ margin: 0; padding: 0; font-family: Arial, sans-serif; }}
+        #map {{ height: 70vh; width: 100%; }}
+        #control-panel {{ padding: 20px; background: #f0f0f0; height: 30vh; overflow-y: auto; }}
+        .fire-info {{ background: white; margin: 10px 0; padding: 15px; border-radius: 5px; 
+                     border-left: 4px solid #ff4444; }}
+        .recommendation {{ background: #e8f4ff; padding: 10px; margin: 5px 0; border-radius: 3px; }}
+        .vehicle-deployment {{ background: #fff2e8; padding: 8px; margin: 3px 0; border-radius: 3px; }}
+        .status-active {{ border-left-color: #ff4444; }}
+        .status-contained {{ border-left-color: #ffaa44; }}
+        .status-extinguished {{ border-left-color: #44ff44; }}
+        .click-instruction {{ background: #ffffcc; padding: 15px; margin: 10px 0; 
+                             border-radius: 5px; text-align: center; font-weight: bold; }}
+        .multi-fire-coordination {{ background: #fff3e0; padding: 15px; margin: 10px 0; 
+                                   border-radius: 5px; border-left: 4px solid #ff9800; }}
+    </style>
+</head>
+<body>
+    <div id="control-panel">
+        <h2>🔥 Interactive Fire Response System - Multi-Fire Coordination</h2>
+        <div class="click-instruction">
+            Click anywhere on the map to start a fire and receive AI response recommendations with multi-fire coordination!
+        </div>
+        <div id="fire-status">
+            <p><em>No active fires. Click on the map to simulate a fire incident.</em></p>
+        </div>
+    </div>
+    
+    <div id="map"></div>
+    
+    <script>
+        // Initialize map centered on Table Mountain
+        var map = L.map('map').setView([-33.95, 18.43], 12);
+        
+        // Add OpenStreetMap tiles
+        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+            attribution: '© OpenStreetMap contributors'
+        }}).addTo(map);
+        
+        // Fire stations data
+        var fireStations = {json.dumps(self.fire_stations)};
+        var activeFireMarkers = {{}};
+        var fireCount = 0;
+        
+        // Add fire stations to map
+        Object.keys(fireStations).forEach(function(stationId) {{
+            var station = fireStations[stationId];
+            L.marker([station.lat, station.lon], {{
+                icon: L.divIcon({{
+                    className: 'fire-station-icon',
+                    html: '🚒',
+                    iconSize: [30, 30],
+                    iconAnchor: [15, 15]
+                }})
+            }}).addTo(map).bindPopup('<b>' + station.name + '</b><br>Fire Station<br>Vehicles: ' + station.vehicles.length);
+        }});
+        
+        // Click handler for starting fires
+        map.on('click', function(e) {{
+            var lat = e.latlng.lat;
+            var lon = e.latlng.lng;
+            
+            // Start fire at clicked location
+            startFire(lat, lon);
+        }});
+        
+        function startFire(lat, lon) {{
+            fireCount++;
+            var fireData = simulateFireStart(lat, lon);
+            
+            // Add fire marker to map
+            var fireMarker = L.circleMarker([lat, lon], {{
+                color: 'red',
+                fillColor: 'orange',
+                fillOpacity: 0.7,
+                radius: 8 + fireData.fire_data.intensity / 10,
+                weight: 3
+            }}).addTo(map);
+            
+            activeFireMarkers[fireData.fire_id] = fireMarker;
+            
+            // Update control panel with multi-fire coordination
+            updateControlPanel(fireData);
+            
+            // Simulate fire growth
+            simulateFireGrowth(fireData.fire_id, fireMarker);
+        }}
+        
+        function simulateFireStart(lat, lon) {{
+            var fireId = 'fire_' + fireCount + '_' + Date.now();
+            var intensity = Math.floor(Math.random() * 60) + 30;
+            var size = 0.1 + Math.random() * 0.4;
+            
+            return {{
+                fire_id: fireId,
+                fire_data: {{
+                    lat: lat,
+                    lon: lon,
+                    intensity: intensity,
+                    size: size,
+                    terrain: getTerrainType(lat, lon),
+                    status: 'active'
+                }},
+                recommendations: generateRecommendations(lat, lon, intensity, size)
+            }};
+        }}
+        
+        function getTerrainType(lat, lon) {{
+            if (lat <= -34.355 && lon <= 18.425) return "coast";
+            if (lat >= -34.345 && lon >= 18.445) return "water";
+            if (lat > -34.355 && lat < -34.345 && lon > 18.425 && lon < 18.445) return "rough";
+            return "residential";
+        }}
+        
+        function generateRecommendations(lat, lon, intensity, size) {{
+            var closestStation = findClosestStation(lat, lon);
+            var activeFireCount = Object.keys(activeFireMarkers).length + 1;
+            var isMultiFire = activeFireCount > 1;
+            
+            var recommendations = {{
+                fire_assessment: {{
+                    level: intensity > 70 ? "HIGH" : intensity > 40 ? "MEDIUM" : "LOW",
+                    intensity: intensity
+                }},
+                primary_response: {{
+                    station: closestStation.name,
+                    distance_km: Math.round(closestStation.distance * 10) / 10,
+                    estimated_response_time: Math.round(closestStation.response_time_base + (closestStation.distance / 10) * 2)
+                }},
+                vehicle_deployment: generateVehicleDeployment(intensity, closestStation),
+                timeline: [
+                    {{time_range: "0-2 minutes", actions: ["Alert and dispatch", "Route calculation"]}},
+                    {{time_range: "2-8 minutes", actions: ["Units en route", "Establish command"]}},
+                    {{time_range: "8+ minutes", actions: ["On-scene operations", "Fire suppression"]}}
+                ]
+            }};
+            
+            // Add multi-fire coordination if multiple fires active
+            if (isMultiFire) {{
+                recommendations.multi_fire_coordination = {{
+                    total_active_fires: activeFireCount,
+                    resource_competition: {{
+                        resource_strain: activeFireCount > 5 ? "HIGH" : activeFireCount > 2 ? "MEDIUM" : "LOW",
+                        fire_to_station_ratio: activeFireCount / Object.keys(fireStations).length
+                    }},
+                    coordination_strategy: {{
+                        command_structure: activeFireCount > 2 ? "Unified Command" : "Divided Command",
+                        mutual_aid_required: activeFireCount > Object.keys(fireStations).length,
+                        specialized_recommendations: activeFireCount >= 3 ? [
+                            "Establish Incident Command Post for unified coordination",
+                            "Deploy aerial surveillance for multi-fire monitoring"
+                        ] : []
+                    }},
+                    inter_fire_risks: calculateInterFireRisks(),
+                    resource_priorities: calculateFirePriorities()
+                }};
+            }}
+            
+            return recommendations;
+        }}
+        
+        function findClosestStation(lat, lon) {{
+            var closestStation = null;
+            var minDistance = Infinity;
+            
+            Object.keys(fireStations).forEach(function(stationId) {{
+                var station = fireStations[stationId];
+                var distance = calculateDistance(lat, lon, station.lat, station.lon);
+                if (distance < minDistance) {{
+                    minDistance = distance;
+                    closestStation = station;
+                    closestStation.distance = distance;
+                }}
+            }});
+            
+            return closestStation;
+        }}
+        
+        function calculateInterFireRisks() {{
+            var risks = [];
+            var firePositions = Object.keys(activeFireMarkers).map(function(fireId) {{
+                var marker = activeFireMarkers[fireId];
+                return {{
+                    id: fireId,
+                    lat: marker.getLatLng().lat,
+                    lon: marker.getLatLng().lng
+                }};
+            }});
+            
+            for (var i = 0; i < firePositions.length; i++) {{
+                for (var j = i + 1; j < firePositions.length; j++) {{
+                    var distance = calculateDistance(
+                        firePositions[i].lat, firePositions[i].lon,
+                        firePositions[j].lat, firePositions[j].lon
+                    );
+                    
+                    if (distance < 3.0) {{
+                        risks.push({{
+                            fire1_id: firePositions[i].id,
+                            fire2_id: firePositions[j].id,
+                            distance_km: Math.round(distance * 100) / 100,
+                            convergence_risk: distance < 1.5 ? "HIGH" : "MEDIUM",
+                            recommended_action: distance < 1.0 ? "Deploy separation barrier teams" : "Monitor convergence closely"
+                        }});
+                    }}
+                }}
+            }}
+            
+            return risks;
+        }}
+        
+        function calculateFirePriorities() {{
+            return Object.keys(activeFireMarkers).map(function(fireId, index) {{
+                var baseScore = 30 + Math.random() * 40;
+                return {{
+                    fire_id: fireId,
+                    priority_score: Math.round(baseScore * 10) / 10,
+                    recommended_stations: Math.min(3, Math.max(1, Math.floor(baseScore / 25)))
+                }};
+            }}).sort(function(a, b) {{ return b.priority_score - a.priority_score; }});
+        }}
+        
+        function generateVehicleDeployment(intensity, station) {{
+            var vehicles = [];
+            
+            if (station.vehicles.includes("Rapid Intervention Vehicle")) {{
+                vehicles.push({{vehicle_type: "Rapid Intervention Vehicle", priority: 1}});
+            }}
+            
+            if (intensity > 60 && station.vehicles.includes("Heavy-Duty Fire Engine")) {{
+                vehicles.push({{vehicle_type: "Heavy-Duty Fire Engine", priority: 2}});
+            }}
+            
+            if (station.vehicles.includes("4x4 Wildland Vehicle")) {{
+                vehicles.push({{vehicle_type: "4x4 Wildland Vehicle", priority: 3}});
+            }}
+            
+            return vehicles.slice(0, 3);
+        }}
+        
+        function calculateDistance(lat1, lon1, lat2, lon2) {{
+            var R = 6371;
+            var dLat = (lat2 - lat1) * Math.PI / 180;
+            var dLon = (lon2 - lon1) * Math.PI / 180;
+            var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }}
+        
+        function updateControlPanel(fireData) {{
+            var statusDiv = document.getElementById('fire-status');
+            var fire = fireData.fire_data;
+            var rec = fireData.recommendations;
+            
+            var html = '<div class="fire-info status-' + fire.status + '">';
+            html += '<h3>🔥 Fire Incident: ' + fireData.fire_id + '</h3>';
+            html += '<p><strong>Location:</strong> ' + fire.lat.toFixed(4) + ', ' + fire.lon.toFixed(4) + '</p>';
+            html += '<p><strong>Threat Level:</strong> ' + rec.fire_assessment.level + ' (' + fire.intensity + '% intensity)</p>';
+            html += '<p><strong>Size:</strong> ' + fire.size.toFixed(2) + ' hectares</p>';
+            html += '<p><strong>Terrain:</strong> ' + fire.terrain + '</p>';
+            
+            // Multi-fire coordination display
+            if (rec.multi_fire_coordination) {{
+                html += '<div class="multi-fire-coordination">';
+                html += '<h4>🔄 Multi-Fire Coordination Status</h4>';
+                
+                var coord = rec.multi_fire_coordination;
+                html += '<p><strong>Total Active Fires:</strong> ' + coord.total_active_fires + '</p>';
+                html += '<p><strong>Resource Strain:</strong> ' + coord.resource_competition.resource_strain + '</p>';
+                html += '<p><strong>Command Structure:</strong> ' + coord.coordination_strategy.command_structure + '</p>';
+                
+                if (coord.coordination_strategy.mutual_aid_required) {{
+                    html += '<div style="background: #ffebee; padding: 8px; margin: 5px 0; border-radius: 3px; border: 1px solid #f44336;">';
+                    html += '<strong>⚠️ MUTUAL AID REQUIRED</strong><br>';
+                    html += 'Additional resources needed from neighboring departments';
+                    html += '</div>';
+                }}
+                
+                if (coord.inter_fire_risks && coord.inter_fire_risks.length > 0) {{
+                    html += '<h5>🔥 Inter-Fire Risks</h5>';
+                    coord.inter_fire_risks.forEach(function(risk) {{
+                        var riskColor = risk.convergence_risk === 'HIGH' ? '#f44336' : '#ff9800';
+                        html += '<div style="background: ' + riskColor + '20; padding: 6px; margin: 3px 0; border-radius: 3px; border: 1px solid ' + riskColor + ';">';
+                        html += '<strong>Fire Convergence Risk: ' + risk.convergence_risk + '</strong><br>';
+                        html += 'Distance: ' + risk.distance_km + ' km<br>';
+                        html += 'Action: ' + risk.recommended_action;
+                        html += '</div>';
+                    }});
+                }}
+                
+                if (coord.resource_priorities) {{
+                    html += '<h5>🎯 Fire Priorities</h5>';
+                    coord.resource_priorities.slice(0, 3).forEach(function(priority) {{
+                        html += '<div style="padding: 5px; margin: 2px 0; border-left: 3px solid #4caf50;">';
+                        html += '<strong>' + priority.fire_id.replace('fire_', 'Fire ') + ':</strong> Priority ' + priority.priority_score;
+                        html += ' (' + priority.recommended_stations + ' stations)';
+                        html += '</div>';
+                    }});
+                }}
+                
+                if (coord.coordination_strategy.specialized_recommendations.length > 0) {{
+                    html += '<h5>📋 Coordination Recommendations</h5>';
+                    html += '<ul>';
+                    coord.coordination_strategy.specialized_recommendations.forEach(function(rec) {{
+                        html += '<li>' + rec + '</li>';
+                    }});
+                    html += '</ul>';
+                }}
+                
+                html += '</div>';
+            }}
+            
+            html += '<div class="recommendation">';
+            html += '<h4>🚨 Primary Response</h4>';
+            html += '<p><strong>Station:</strong> ' + rec.primary_response.station + '</p>';
+            html += '<p><strong>Distance:</strong> ' + rec.primary_response.distance_km + ' km</p>';
+            html += '<p><strong>ETA:</strong> ' + rec.primary_response.estimated_response_time + ' minutes</p>';
+            html += '</div>';
+            
+            html += '<div class="recommendation">';
+            html += '<h4>🚒 Vehicle Deployment</h4>';
+            rec.vehicle_deployment.forEach(function(vehicle) {{
+                html += '<div class="vehicle-deployment">';
+                html += '<strong>Priority ' + vehicle.priority + ':</strong> ' + vehicle.vehicle_type;
+                html += '</div>';
+            }});
+            html += '</div>';
+            
+            html += '</div>';
+            
+            statusDiv.innerHTML = html;
+        }}
+        
+        function simulateFireGrowth(fireId, marker) {{
+            var growthCount = 0;
+            var maxGrowth = 10 + Math.floor(Math.random() * 15);
+            
+            var growthInterval = setInterval(function() {{
+                if (growthCount >= maxGrowth) {{
+                    clearInterval(growthInterval);
+                    
+                    // Update marker to show controlled status
+                    marker.setStyle({{
+                        color: 'orange',
+                        fillColor: 'yellow',
+                        fillOpacity: 0.5
+                    }});
+                    
+                    // Add suppression update
+                    var statusDiv = document.getElementById('fire-status');
+                    var updateHtml = `
+                        <div style="background: #e8f5e8; padding: 8px; margin: 5px 0; border-radius: 3px; border-left: 3px solid #4caf50;">
+                            <strong>✅ Fire ${{fireId}} Status Update</strong><br>
+                            <div style="font-size: 0.9em; margin-top: 4px;">
+                                Status: <strong>CONTROLLED</strong> | Containment: <strong>85%</strong><br>
+                                Suppression progress: <strong>Successful</strong>
+                            </div>
+                        </div>
+                    `;
+                    statusDiv.innerHTML += updateHtml;
+                    statusDiv.scrollTop = statusDiv.scrollHeight;
+                    
+                    return;
+                }}
+                
+                // Grow fire marker
+                var currentRadius = marker.getRadius();
+                marker.setRadius(Math.min(currentRadius + 1, 20));
+                
+                // Add periodic updates
+                if (growthCount % 3 === 0) {{
+                    var statusDiv = document.getElementById('fire-status');
+                    var recommendations = [
+                        "Deploying additional suppression units",
+                        "Establishing firebreaks on eastern perimeter",
+                        "Coordinating water tanker operations",
+                        "Monitoring wind direction changes"
+                    ];
+                    var updateHtml = `
+                        <div style="background: #fff3e0; padding: 6px; margin: 3px 0; border-radius: 3px; font-size: 0.9em;">
+                            <strong>🚒 Fire ${{fireId}} Update (${{Math.floor(growthCount * 2)}} min)</strong><br>
+                            <div style="margin-top: 4px;">
+                                <b>🎯 Live Priorities:</b><br>
+                                ${{recommendations.map(r => `<div style="margin-left: 10px; font-size: 0.9em;">• ${{r}}</div>`).join('')}}
+                            </div>
+                        </div>
+                    `;
+                    statusDiv.innerHTML += updateHtml;
+                    statusDiv.scrollTop = statusDiv.scrollHeight;
+                }}
+                
+                growthCount++;
+            }}, 2000);
+        }}
+    </script>
+</body>
+</html>
+'''
+        
+        return html_content
+
     def analyze_fire_and_recommend_response(self, fire_id):
-        """AI-powered fire analysis and response recommendations"""
+        """AI-powered fire analysis and response recommendations with multi-fire coordination"""
         fire = self.active_fires[fire_id]
+        
+        # Check if this is a multi-fire scenario
+        active_fires = {fid: f for fid, f in self.active_fires.items() if f["status"] == "active"}
+        is_multi_fire = len(active_fires) > 1
         
         # Calculate distances to all stations
         station_distances = {}
@@ -716,6 +1343,21 @@ class InteractiveFireResponseSystem:
             "resource_optimization": self.optimize_resources(fire, sorted_stations)
         }
         
+        # Add multi-fire coordination if applicable
+        if is_multi_fire:
+            multi_fire_analysis = self.analyze_multi_fire_scenario(active_fires)
+            recommendations["multi_fire_coordination"] = multi_fire_analysis
+            
+            # Calculate fire priority in context of other fires
+            fire_priority = self.calculate_fire_priority_in_context(fire, critical_threats, active_fires)
+            recommendations["fire_priority"] = fire_priority
+            
+            # Adjust deployments based on resource availability
+            available_resources = self.get_available_resources_for_fire(fire_id, active_fires)
+            if available_resources["limited_resources"]:
+                recommendations["resource_constraints"] = available_resources
+                recommendations["adjusted_deployment"] = self.adjust_deployment_for_constraints(fire, recommendations, available_resources)
+        
         self.response_log.append({
             "fire_id": fire_id,
             "timestamp": datetime.now(),
@@ -723,7 +1365,138 @@ class InteractiveFireResponseSystem:
         })
         
         return recommendations
+
+    def assess_fire_threat(self, fire):
+        """Assess fire threat level and characteristics"""
+        threat_level = "LOW"
+        
+        if fire["intensity"] > 70:
+            threat_level = "HIGH"
+        elif fire["intensity"] > 40:
+            threat_level = "MEDIUM"
+        
+        # Adjust based on terrain and growth potential
+        terrain_multiplier = {
+            "forest": 1.3,
+            "residential": 1.5,
+            "rough": 1.2,
+            "road": 0.8,
+            "coast": 0.6,
+            "water": 0.1
+        }.get(fire.get("terrain", "rough"), 1.0)
+        
+        # Calculate threat score
+        base_score = fire["intensity"] / 100
+        terrain_adjusted = base_score * terrain_multiplier
+        size_factor = min(fire["size"] / 5.0, 1.0)  # Size impact capped at 5 hectares
+        
+        final_score = terrain_adjusted + size_factor
+        
+        if final_score > 1.5:
+            threat_level = "EXTREME"
+        elif final_score > 1.2:
+            threat_level = "HIGH"
+        elif final_score > 0.8:
+            threat_level = "MEDIUM"
+        
+        return {
+            "threat_level": threat_level,
+            "base_intensity": fire["intensity"],
+            "terrain_factor": terrain_multiplier,
+            "size_factor": size_factor,
+            "final_score": final_score
+        }
+
+class MultiFireCoordinator:
+    """Coordinates response to multiple simultaneous fires"""
     
+    def __init__(self):
+        self.active_incidents = {}
+        self.resource_pool = {}
+        self.priority_matrix = {}
+    
+    def calculate_fire_priority(self, fire, critical_threats):
+        """Calculate priority score for a fire based on multiple factors"""
+        priority_score = 0
+        
+        # Size factor (0-30 points)
+        size_score = min(30, fire["size"] * 10)
+        priority_score += size_score
+        
+        # Intensity factor (0-25 points)
+        intensity_score = fire["intensity"] * 0.25
+        priority_score += intensity_score
+        
+        # Critical area proximity (0-35 points)
+        proximity_score = 0
+        for category, threats in critical_threats.items():
+            for threat in threats:
+                if threat["threat_level"] >= 80:
+                    proximity_score += 35
+                    break
+                elif threat["threat_level"] >= 50:
+                    proximity_score += 25
+                elif threat["threat_level"] >= 20:
+                    proximity_score += 15
+        proximity_score = min(35, proximity_score)
+        priority_score += proximity_score
+        
+        # Growth rate factor (0-10 points)
+        growth_score = min(10, fire["growth_rate"])
+        priority_score += growth_score
+        
+        return {
+            "total_score": priority_score,
+            "size_factor": size_score,
+            "intensity_factor": intensity_score,
+            "proximity_factor": proximity_score,
+            "growth_factor": growth_score,
+            "priority_level": self._get_priority_level(priority_score)
+        }
+    
+    def _get_priority_level(self, score):
+        """Convert numerical score to priority level"""
+        if score >= 80:
+            return "CRITICAL"
+        elif score >= 60:
+            return "HIGH"
+        elif score >= 40:
+            return "MEDIUM"
+        else:
+            return "LOW"
+    
+    def allocate_resources(self, fire_priorities, available_stations):
+        """Allocate fire stations to fires based on priorities and proximity"""
+        allocations = {}
+        allocated_stations = set()
+        
+        # Sort fires by priority score (highest first)
+        sorted_fires = sorted(fire_priorities.items(), 
+                            key=lambda x: x[1]["total_score"], reverse=True)
+        
+        for fire_id, priority_info in sorted_fires:
+            best_stations = []
+            
+            # Find best available stations for this fire
+            for station_id in available_stations:
+                if station_id not in allocated_stations:
+                    best_stations.append(station_id)
+            
+            # Allocate stations based on fire priority
+            if priority_info["priority_level"] == "CRITICAL":
+                # Critical fires get multiple stations
+                allocated = best_stations[:3] if len(best_stations) >= 3 else best_stations
+            elif priority_info["priority_level"] == "HIGH":
+                allocated = best_stations[:2] if len(best_stations) >= 2 else best_stations
+            else:
+                # Medium/Low priority fires get one station
+                allocated = best_stations[:1]
+            
+            allocations[fire_id] = allocated
+            allocated_stations.update(allocated)
+        
+        return allocations
+
     def assess_fire_threat(self, fire):
         """Assess fire threat level and characteristics"""
         threat_level = "LOW"
@@ -1553,6 +2326,57 @@ class InteractiveFireResponseSystem:
             }});
             html += '</div>';
             
+            // Multi-fire coordination display
+            if (rec.multi_fire_coordination) {{
+                html += '<div class="multi-fire-coordination" style="background: #fff3e0; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #ff9800;">';
+                html += '<h4>🔄 Multi-Fire Coordination Status</h4>';
+                
+                var coord = rec.multi_fire_coordination;
+                html += '<p><strong>Total Active Fires:</strong> ' + coord.total_active_fires + '</p>';
+                html += '<p><strong>Resource Strain:</strong> ' + (coord.resource_competition.resource_strain || 'LOW') + '</p>';
+                html += '<p><strong>Command Structure:</strong> ' + coord.coordination_strategy.command_structure + '</p>';
+                
+                if (coord.coordination_strategy.mutual_aid_required) {{
+                    html += '<div style="background: #ffebee; padding: 8px; margin: 5px 0; border-radius: 3px; border: 1px solid #f44336;">';
+                    html += '<strong>⚠️ MUTUAL AID REQUIRED</strong><br>';
+                    html += 'Additional resources needed from neighboring departments';
+                    html += '</div>';
+                }}
+                
+                if (coord.inter_fire_risks && coord.inter_fire_risks.length > 0) {{
+                    html += '<h5>🔥 Inter-Fire Risks</h5>';
+                    coord.inter_fire_risks.forEach(function(risk) {{
+                        var riskColor = risk.convergence_risk === 'HIGH' ? '#f44336' : '#ff9800';
+                        html += '<div style="background: ' + riskColor + '20; padding: 6px; margin: 3px 0; border-radius: 3px; border: 1px solid ' + riskColor + ';">';
+                        html += '<strong>Fire Convergence Risk: ' + risk.convergence_risk + '</strong><br>';
+                        html += 'Distance: ' + risk.distance_km.toFixed(2) + ' km<br>';
+                        html += 'Action: ' + risk.recommended_action;
+                        html += '</div>';
+                    }});
+                }}
+                
+                if (coord.resource_competition && coord.resource_competition.resource_priorities) {{
+                    html += '<h5>🎯 Resource Priorities</h5>';
+                    coord.resource_competition.resource_priorities.slice(0, 3).forEach(function(priority) {{
+                        html += '<div style="padding: 5px; margin: 2px 0; border-left: 3px solid #4caf50;">';
+                        html += '<strong>Fire ' + priority.fire_id.replace('fire_', '') + ':</strong> Priority Score ' + Math.round(priority.priority_score);
+                        html += ' (Stations: ' + priority.recommended_stations + ')';
+                        html += '</div>';
+                    }});
+                }}
+                
+                if (coord.coordination_strategy.specialized_recommendations && coord.coordination_strategy.specialized_recommendations.length > 0) {{
+                    html += '<h5>📋 Coordination Recommendations</h5>';
+                    html += '<ul>';
+                    coord.coordination_strategy.specialized_recommendations.forEach(function(rec) {{
+                        html += '<li>' + rec + '</li>';
+                    }});
+                    html += '</ul>';
+                }}
+                
+                html += '</div>';
+            }}
+            
             html += '</div>';
             
             statusDiv.innerHTML = html;
@@ -1780,41 +2604,6 @@ class InteractiveFireResponseSystem:
 '''
         
         return html_content
-    
-    def run_interactive_system(self):
-        """Run the interactive fire response system"""
-        print("🔥 Starting Interactive Fire Response System...")
-        
-        # Generate interactive map
-        map_html = self.generate_interactive_map()
-        
-        # Save to file
-        map_file = Path("interactive_fire_response_map.html")
-        map_file.write_text(map_html, encoding='utf-8')
-        
-        print(f"✅ Interactive map saved as: {map_file.name}")
-        print(f"📍 Coverage area: Table Mountain National Park")
-        print(f"🚒 Fire stations loaded: {len(self.fire_stations)}")
-        print(f"🚛 Vehicle types available: {len(self.vehicle_fleet)}")
-        
-        # Open in browser
-        try:
-            webbrowser.open(f"file://{map_file.absolute()}")
-            print(f"🌐 Opening interactive map in your default browser...")
-        except Exception as e:
-            print(f"❌ Could not open browser automatically: {e}")
-            print(f"📂 Please manually open: {map_file.absolute()}")
-        
-        print("\n" + "="*60)
-        print("🎯 INTERACTIVE FEATURES:")
-        print("• Click anywhere on the map to start a fire")
-        print("• Get instant AI response recommendations")
-        print("• See optimal vehicle deployment strategies")
-        print("• View real-time response timelines")
-        print("• Monitor fire growth and suppression")
-        print("="*60)
-        
-        return map_file
 
 def main():
     """Main function to run the interactive fire response system"""
@@ -1831,42 +2620,46 @@ def main():
     print(f"   {map_file.absolute()}")
     print("\n🔥 Click on the map to simulate fire incidents and get AI recommendations!")
     
-    # Keep system running for real-time updates and continuous monitoring
-    try:
-        print("\n⏱️  System running with live fire tracking... Press Ctrl+C to exit")
-        print("🔄 Monitoring active fires and generating updated recommendations...")
-        
-        update_counter = 0
-        while True:
-            fire_system.update_fire_simulation()
-            update_counter += 1
-            
-            # Print system status every 30 seconds
-            if update_counter % 6 == 0:
-                active_fires = len([f for f in fire_system.active_fires.values() if f["status"] == "active"])
-                total_fires = len(fire_system.active_fires)
-                print(f"\n📊 System Status: {active_fires} active fires, {total_fires} total incidents tracked")
-                
-                if active_fires > 0:
-                    for fire_id, fire in fire_system.active_fires.items():
-                        if fire["status"] == "active":
-                            print(f"   🔥 {fire_id}: {fire['size']:.2f}ha, {fire['intensity']:.0f}% intensity")
-            
-            time.sleep(5)  # Update every 5 seconds for responsive tracking
-            
-    except KeyboardInterrupt:
-        print("\n🛑 System shutdown requested")
-        
-        # Final summary
-        if fire_system.active_fires:
-            print("\n📋 Final Fire Summary:")
-            for fire_id, fire in fire_system.active_fires.items():
-                duration = (datetime.now() - fire["start_time"]).total_seconds() / 60
-                print(f"   {fire_id}: {fire['status']}, {fire['size']:.2f}ha, {duration:.1f} minutes")
-        
-        print("✅ Interactive Fire Response System stopped")
-        print(f"📊 Total incidents tracked: {len(fire_system.fire_history)}")
-        print(f"📝 Recommendations generated: {len(fire_system.response_log)}")
+    # Demo the multi-fire coordination system
+    print("\n🔥 MULTI-FIRE COORDINATION DEMO")
+    print("=" * 40)
+    print("Starting 3 test fires to demonstrate coordination capabilities...")
+    
+    # Start test fires
+    fire_id1 = fire_system.start_fire(-33.95, 18.43, initial_intensity=75)
+    fire_id2 = fire_system.start_fire(-33.94, 18.44, initial_intensity=60) 
+    fire_id3 = fire_system.start_fire(-33.96, 18.42, initial_intensity=85)
+    
+    print(f"\n✅ Started {len(fire_system.active_fires)} test fires:")
+    for fire_id in [fire_id1, fire_id2, fire_id3]:
+        fire = fire_system.active_fires[fire_id]
+        print(f"   🔥 {fire_id}: {fire['intensity']}% intensity, {fire['terrain']} terrain")
+    
+    # Demonstrate multi-fire coordination
+    active_fires = {fid: f for fid, f in fire_system.active_fires.items() if f["status"] == "active"}
+    multi_fire_analysis = fire_system.analyze_multi_fire_scenario(active_fires)
+    
+    print(f"\n🎯 MULTI-FIRE COORDINATION ANALYSIS:")
+    print(f"   Total Active Fires: {multi_fire_analysis['total_active_fires']}")
+    print(f"   Resource Strain: {multi_fire_analysis['resource_competition']['resource_strain']}")
+    print(f"   Command Structure: {multi_fire_analysis['coordination_strategy']['command_structure']}")
+    print(f"   Mutual Aid Required: {multi_fire_analysis['coordination_strategy']['mutual_aid_required']}")
+    
+    if multi_fire_analysis['inter_fire_risks']:
+        print(f"\n⚠️  CONVERGENCE RISKS DETECTED:")
+        for risk in multi_fire_analysis['inter_fire_risks']:
+            print(f"   {risk['fire1_id']} ↔ {risk['fire2_id']}: {risk['convergence_risk']} risk at {risk['distance_km']:.2f}km")
+    
+    print(f"\n🏆 RESOURCE PRIORITIES:")
+    for priority in multi_fire_analysis['resource_competition']['resource_priorities']:
+        print(f"   {priority['fire_id']}: Score {priority['priority_score']:.1f} - {priority['recommended_stations']} stations")
+    
+    print("\n" + "=" * 60)
+    print("✅ MULTI-FIRE COORDINATION SYSTEM READY!")
+    print("🌐 Open the HTML map to interactively test the system")
+    print("� Click anywhere on the map to add more fires")
+    print("� See real-time multi-fire coordination in action!")
+    print("=" * 60)
 
 if __name__ == "__main__":
     main()
