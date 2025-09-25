@@ -10,19 +10,31 @@ A comprehensive GIS-enhanced forest fire simulation and suppression platform for
 ## 🌟 Features
 
 ### Core Capabilities
-- **Real-time Fire Simulation**: Advanced forest fire spread modeling with environmental factors
-- **GIS Integration**: OpenStreetMap data integration for realistic terrain modeling
-- **AI-Powered Optimization**: Machine learning algorithms for suppression strategy optimization
-- **Interactive Visualizations**: Web-based maps with real-time fire tracking
-- **Vehicle Fleet Management**: Comprehensive fire suppression vehicle deployment system
-- **Multi-terrain Analysis**: Support for road, rough terrain, coastal, and water access scenarios
+- **🔥 Multi-Fire Coordination**: Advanced coordination system for simultaneous fire incidents with resource competition analysis
+- **🎯 Multi-Front Fire Analysis**: Sophisticated analysis of head, flanking, and backing fire fronts with tactical deployment
+- **🛡️ Critical Area Protection**: Real-time threat assessment for 13 protected zones (residential, forest, infrastructure)
+- **🤖 AI-Powered Optimization**: Machine learning algorithms for suppression strategy optimization and priority management
+- **🗺️ Interactive Visualizations**: Web-based maps with real-time fire tracking and multi-fire coordination display
+- **🚒 Vehicle Fleet Management**: Comprehensive fire suppression vehicle deployment with resource strain analysis
+- **🌍 GIS Integration**: OpenStreetMap data integration for realistic terrain modeling
+- **⚡ Real-time Fire Simulation**: Advanced forest fire spread modeling with environmental factors
+- **🏔️ Multi-terrain Analysis**: Support for road, rough terrain, coastal, and water access scenarios
+
+### Advanced Features
+- **🔄 Multi-Fire Coordination Engine**: Unified command structure for 3+ simultaneous fires with resource sharing protocols
+- **⚠️ Inter-Fire Risk Assessment**: Automatic detection of fire convergence risks within 3km with barrier deployment recommendations
+- **📊 Resource Competition Analysis**: Dynamic fire-to-station ratio calculations with mutual aid coordination
+- **🏆 Priority-Based Allocation**: Intelligent fire prioritization using size, intensity, and proximity threat factors
+- **🎯 Critical Area Monitoring**: Real-time threat assessment for residential areas, forests, and infrastructure
+- **🚨 Emergency Response Optimization**: Advanced tactical deployment for head, flanking, and backing fire fronts
 
 ### Visualization Components
-- **Interactive HTML Maps**: Folium-based interactive fire spread visualizations
+- **Interactive HTML Maps**: Click-to-start fire capability with real-time multi-fire coordination display
 - **OSM Integration**: Real OpenStreetMap data overlay with fire stations and water sources
-- **Vehicle Deployment Maps**: Live tracking of fire suppression vehicle positions
-- **Statistical Dashboards**: Real-time metrics and performance analytics
-- **Terrain Analysis**: Multi-layer geographical data visualization
+- **Multi-Fire Dashboard**: Live coordination status, resource strain levels, and convergence risk warnings
+- **Vehicle Deployment Maps**: Live tracking of fire suppression vehicle positions with priority assignments
+- **Statistical Dashboards**: Real-time metrics and performance analytics for multiple simultaneous incidents
+- **Terrain Analysis**: Multi-layer geographical data visualization with tactical front analysis
 
 ## 🚀 Quick Start
 
@@ -69,6 +81,9 @@ python validate_environment.py
 ### Quick Test Run
 
 ```bash
+# Multi-Fire Coordination System (NEW!)
+python ai_vertex.py
+
 # Quick component testing (recommended first run)
 python quick_test.py
 
@@ -78,6 +93,22 @@ python run_pipeline_robust.py
 # Simple pipeline (legacy)
 python run_all_simple.py
 ```
+
+### 🔥 Multi-Fire Coordination Demo
+
+The new **ai_vertex.py** system demonstrates advanced multi-fire coordination:
+
+```bash
+python ai_vertex.py
+```
+
+**Features Demonstrated:**
+- ✅ **3 simultaneous test fires** automatically started
+- ✅ **Multi-fire coordination analysis** with resource competition
+- ✅ **Inter-fire convergence risk assessment** (HIGH/MEDIUM risks detected)
+- ✅ **Priority-based resource allocation** with scoring system
+- ✅ **Interactive HTML map** with click-to-start fire capability
+- ✅ **Real-time coordination display** showing command structure and mutual aid status
 
 ## 📊 System Architecture
 
@@ -105,10 +136,20 @@ python run_all_simple.py
 - Terrain-based accessibility analysis
 - Outputs: `fire_suppression_vehicles_map.html`
 
-#### 5. **AI Optimization** (`ai_fire_demo.py`)
+#### 5. **Multi-Fire Coordination System** (`ai_vertex.py`) 🔥🔥🔥
+- **Enterprise-grade multi-fire coordination** with simultaneous incident management
+- **Advanced multi-front analysis** (head, flanking, backing fires) with tactical resource deployment
+- **Critical area protection** for 13 zones including residential areas, forests, and infrastructure
+- **Inter-fire risk assessment** with convergence monitoring and barrier deployment recommendations
+- **Resource competition analysis** with priority-based allocation and mutual aid coordination
+- **Interactive HTML interface** with click-to-start fire capability and real-time coordination display
+- **Unified command structure** automatically established for 3+ simultaneous fires
+- **Real-time fire growth simulation** with suppression tracking and containment progress
+
+#### 6. **AI Optimization** (`ai_fire_demo.py`)
 - Machine learning-powered suppression strategy optimization
 - Adaptive learning algorithms for improved response efficiency
-- Real-time decision support system
+- Real-time decision support system with multi-fire context
 
 ### Pipeline Scripts
 
