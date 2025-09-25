@@ -1,0 +1,601 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Interactive Fire Response System - Table Mountain</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <style>
+        body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+        #map { height: 70vh; width: 100%; }
+        #control-panel { padding: 20px; background: #f0f0f0; height: 30vh; overflow-y: auto; }
+        .fire-info { background: white; margin: 10px 0; padding: 15px; border-radius: 5px; 
+                     border-left: 4px solid #ff4444; }
+        .recommendation { background: #e8f4ff; padding: 10px; margin: 5px 0; border-radius: 3px; }
+        .vehicle-deployment { background: #fff2e8; padding: 8px; margin: 3px 0; border-radius: 3px; }
+        .status-active { border-left-color: #ff4444; }
+        .status-contained { border-left-color: #ffaa44; }
+        .status-extinguished { border-left-color: #44ff44; }
+        .click-instruction { background: #ffffcc; padding: 15px; margin: 10px 0; 
+                             border-radius: 5px; text-align: center; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div id="control-panel">
+        <h2>🔥 Interactive Fire Response System</h2>
+        <div class="click-instruction">
+            Click anywhere on the map to start a fire and receive AI response recommendations!
+        </div>
+        <div id="fire-status">
+            <p><em>No active fires. Click on the map to simulate a fire incident.</em></p>
+        </div>
+    </div>
+    
+    <div id="map"></div>
+    
+    <script>
+        // Initialize map centered on Table Mountain
+        var map = L.map('map').setView([-33.95, 18.43], 12);
+        
+        // Add OpenStreetMap tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
+        // Fire stations
+        var fireStations = {"roeland_street": {"name": "Roeland Street Fire Station", "lat": -33.926, "lon": 18.421, "vehicles": ["Heavy-Duty Fire Engine", "Rapid Intervention Vehicle", "Incident Command Vehicle"], "response_time_base": 5, "coverage_radius": 8}, "sea_point": {"name": "Sea Point Fire Station", "lat": -33.921, "lon": 18.384, "vehicles": ["4x4 Wildland Vehicle", "Water Tanker", "CAFS Unit"], "response_time_base": 6, "coverage_radius": 7}, "constantia": {"name": "Constantia Fire Station", "lat": -34.004, "lon": 18.441, "vehicles": ["Heavy-Duty Fire Engine", "4x4 Wildland Vehicle", "Dive Vehicle"], "response_time_base": 8, "coverage_radius": 12}, "salt_river": {"name": "Salt River Fire Station", "lat": -33.93, "lon": 18.465, "vehicles": ["Water Tanker", "Rapid Intervention Vehicle", "4x4 Wildland Vehicle"], "response_time_base": 7, "coverage_radius": 9}, "wynberg": {"name": "Wynberg Fire Station", "lat": -34.001, "lon": 18.475, "vehicles": ["Heavy-Duty Fire Engine", "CAFS Unit", "Incident Command Vehicle"], "response_time_base": 9, "coverage_radius": 10}};
+        var activeFireMarkers = {};
+        
+        // Add fire stations to map
+        Object.keys(fireStations).forEach(function(stationId) {
+            var station = fireStations[stationId];
+            L.marker([station.lat, station.lon], {
+                icon: L.divIcon({
+                    className: 'fire-station-icon',
+                    html: '🚒',
+                    iconSize: [30, 30],
+                    iconAnchor: [15, 15]
+                })
+            }).addTo(map).bindPopup('<b>' + station.name + '</b><br>Fire Station<br>Vehicles: ' + station.vehicles.length);
+        });
+        
+        // Click handler for starting fires
+        map.on('click', function(e) {
+            var lat = e.latlng.lat;
+            var lon = e.latlng.lng;
+            
+            // Start fire at clicked location
+            startFire(lat, lon);
+        });
+        
+        function startFire(lat, lon) {
+            // Send request to Python backend (simplified - in real implementation)
+            var fireData = simulateFireStart(lat, lon);
+            
+            // Add fire marker to map
+            var fireMarker = L.circleMarker([lat, lon], {
+                color: 'red',
+                fillColor: 'orange',
+                fillOpacity: 0.7,
+                radius: 10,
+                weight: 3
+            }).addTo(map);
+            
+            activeFireMarkers[fireData.fire_id] = fireMarker;
+            
+            // Update control panel
+            updateControlPanel(fireData);
+            
+            // Simulate fire growth
+            simulateFireGrowth(fireData.fire_id, fireMarker);
+        }
+        
+        function simulateFireStart(lat, lon) {
+            // Simulate fire data (in real implementation, this would call Python backend)
+            var fireId = 'fire_' + Date.now();
+            var intensity = Math.floor(Math.random() * 60) + 30; // 30-90% intensity
+            
+            return {
+                fire_id: fireId,
+                fire_data: {
+                    lat: lat,
+                    lon: lon,
+                    intensity: intensity,
+                    size: 0.1,
+                    terrain: getTerrainType(lat, lon),
+                    status: 'active'
+                },
+                recommendations: generateRecommendations(lat, lon, intensity)
+            };
+        }
+        
+        function getTerrainType(lat, lon) {
+            if (lat <= -34.355 && lon <= 18.425) return "coast";
+            if (lat >= -34.345 && lon >= 18.445) return "water";
+            if (lat > -34.355 && lat < -34.345 && lon > 18.425 && lon < 18.445) return "rough";
+            return "road";
+        }
+        
+        function generateRecommendations(lat, lon, intensity) {
+            // Find closest fire station
+            var closestStation = null;
+            var minDistance = Infinity;
+            
+            Object.keys(fireStations).forEach(function(stationId) {
+                var station = fireStations[stationId];
+                var distance = calculateDistance(lat, lon, station.lat, station.lon);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestStation = station;
+                }
+            });
+            
+            var responseTime = Math.round(closestStation.response_time_base + (minDistance / 10) * 2);
+            var threatLevel = intensity > 70 ? "HIGH" : intensity > 40 ? "MEDIUM" : "LOW";
+            
+            return {
+                fire_assessment: {
+                    level: threatLevel,
+                    intensity: intensity
+                },
+                primary_response: {
+                    station: closestStation.name,
+                    distance_km: Math.round(minDistance * 10) / 10,
+                    estimated_response_time: responseTime
+                },
+                vehicle_deployment: generateVehicleDeployment(intensity, closestStation),
+                timeline: [
+                    {time_range: "0-2 minutes", actions: ["Alert and dispatch", "Route calculation"]},
+                    {time_range: "2-" + responseTime + " minutes", actions: ["Units en route", "Establish command"]},
+                    {time_range: responseTime + "+ minutes", actions: ["On-scene operations", "Fire suppression"]}
+                ]
+            };
+        }
+        
+        function generateVehicleDeployment(intensity, station) {
+            var vehicles = [];
+            
+            if (station.vehicles.includes("Rapid Intervention Vehicle")) {
+                vehicles.push({vehicle_type: "Rapid Intervention Vehicle", priority: 1});
+            }
+            
+            if (intensity > 60 && station.vehicles.includes("Heavy-Duty Fire Engine")) {
+                vehicles.push({vehicle_type: "Heavy-Duty Fire Engine", priority: 2});
+            }
+            
+            if (station.vehicles.includes("4x4 Wildland Vehicle")) {
+                vehicles.push({vehicle_type: "4x4 Wildland Vehicle", priority: 3});
+            }
+            
+            return vehicles.slice(0, 3); // Max 3 vehicles
+        }
+        
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            var R = 6371; // Earth's radius in km
+            var dLat = (lat2 - lat1) * Math.PI / 180;
+            var dLon = (lon2 - lon1) * Math.PI / 180;
+            var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+        
+        function updateFireShape(fireData, fireCenter) {
+            // Remove previous fire shape
+            if (fireData.fireShape) {
+                map.removeLayer(fireData.fireShape);
+            }
+            
+            // Calculate realistic fire perimeter points
+            var shapePoints = [];
+            var baseRadius = Math.sqrt(fireData.size / Math.PI) * 200; // meters to pixels scale
+            
+            // Create irregular elliptical shape based on wind
+            for (var angle = 0; angle < 360; angle += 20) {
+                var angleRad = angle * Math.PI / 180;
+                var windRad = fireData.windDirection * Math.PI / 180;
+                
+                // Calculate distance from wind direction
+                var angleFromWind = Math.abs(angle - fireData.windDirection);
+                if (angleFromWind > 180) angleFromWind = 360 - angleFromWind;
+                
+                // Wind effect: stretch in wind direction, compress against wind
+                var windEffect = 1.0 + (fireData.windSpeed / 30.0);
+                var radiusFactor;
+                
+                if (angleFromWind < 90) { // Downwind side
+                    radiusFactor = windEffect * (1.0 + 0.7 * (90 - angleFromWind) / 90);
+                } else { // Upwind side
+                    radiusFactor = (1.0 / windEffect) * (0.4 + 0.6 * (angleFromWind - 90) / 90);
+                }
+                
+                // Add irregularity and shape factor
+                radiusFactor *= fireData.shapeFactor * (0.7 + Math.random() * 0.6);
+                
+                var pointRadius = baseRadius * radiusFactor;
+                var latOffset = pointRadius * Math.cos(angleRad) / 111000;
+                var lonOffset = pointRadius * Math.sin(angleRad) / (111000 * Math.cos(fireCenter.lat * Math.PI / 180));
+                
+                shapePoints.push([fireCenter.lat + latOffset, fireCenter.lng + lonOffset]);
+            }
+            
+            // Create polygon for fire shape
+            fireData.fireShape = L.polygon(shapePoints, {
+                color: '#ff4444',
+                fillColor: fireData.intensity > 70 ? '#ff0000' : fireData.intensity > 40 ? '#ff6600' : '#ffaa00',
+                fillOpacity: 0.6 + (fireData.intensity / 200),
+                weight: 2
+            }).addTo(map);
+            
+            // Generate spot fires occasionally
+            if (fireData.intensity > 50 && Math.random() < 0.15) { // 15% chance per update
+                generateSpotFires(fireData, fireCenter);
+            }
+            
+            // Update spot fires
+            fireData.spotFires.forEach(function(spot) {
+                if (!spot.marker) {
+                    spot.marker = L.circle([spot.lat, spot.lon], {
+                        radius: 30 + spot.size * 100,
+                        color: '#ff8800',
+                        fillColor: '#ffaa00',
+                        fillOpacity: 0.7
+                    }).addTo(map);
+                } else {
+                    // Grow spot fires
+                    spot.size += 0.01;
+                    spot.marker.setRadius(30 + spot.size * 100);
+                }
+            });
+        }
+        
+        function generateSpotFires(fireData, fireCenter) {
+            // Generate 1-2 spot fires from ember transport
+            var numSpots = Math.random() < 0.7 ? 1 : 2;
+            
+            for (var i = 0; i < numSpots; i++) {
+                // Spot fires generally occur downwind
+                var maxDistance = Math.min(1000, 200 + fireData.windSpeed * 20 + fireData.intensity * 8); // meters
+                var distance = 150 + Math.random() * maxDistance;
+                
+                // Direction: mostly downwind with some variance
+                var directionVariance = Math.random() * 90 - 45; // ±45 degrees
+                var spotDirection = fireData.windDirection + directionVariance;
+                
+                var latOffset = distance * Math.cos(spotDirection * Math.PI / 180) / 111000;
+                var lonOffset = distance * Math.sin(spotDirection * Math.PI / 180) / (111000 * Math.cos(fireCenter.lat * Math.PI / 180));
+                
+                fireData.spotFires.push({
+                    lat: fireCenter.lat + latOffset,
+                    lon: fireCenter.lng + lonOffset,
+                    size: Math.random() * 0.02,  // Small initial size
+                    marker: null
+                });
+            }
+        }
+        
+        function updateControlPanel(fireData) {
+            var statusDiv = document.getElementById('fire-status');
+            var fire = fireData.fire_data;
+            var rec = fireData.recommendations;
+            
+            var html = '<div class="fire-info status-' + fire.status + '">';
+            html += '<h3>🔥 Multi-Front Fire Analysis: ' + fireData.fire_id + '</h3>';
+            html += '<p><strong>Location:</strong> ' + fire.lat.toFixed(4) + ', ' + fire.lon.toFixed(4) + '</p>';
+            html += '<p><strong>Threat Level:</strong> ' + rec.fire_assessment.level + ' (' + fire.intensity + '% intensity)</p>';
+            html += '<p><strong>Wind:</strong> ' + (fire.wind_speed || 'Unknown') + ' km/h from ' + (fire.wind_direction || 'N/A') + '°</p>';
+            html += '<p><strong>Terrain:</strong> ' + fire.terrain + '</p>';
+            
+            // Multi-front analysis display
+            if (rec.multi_front_analysis) {
+                html += '<div class="multi-front-analysis">';
+                html += '<h4>🎯 Fire Front Analysis</h4>';
+                
+                // Priority deployment
+                if (rec.priority_deployment && rec.priority_deployment.length > 0) {
+                    html += '<div class="priority-deployment">';
+                    html += '<h5>⚡ Priority Deployments</h5>';
+                    rec.priority_deployment.forEach(function(deployment) {
+                        var priorityColor = deployment.priority === 'HEAD' ? '#ff0000' : 
+                                          deployment.priority === 'HIGH' ? '#ff6600' : 
+                                          deployment.priority === 'CRITICAL_PROTECTION' ? '#cc0000' : '#ffaa00';
+                        html += '<div style="border-left: 4px solid ' + priorityColor + '; padding: 8px; margin: 5px 0; background: #f9f9f9;">';
+                        html += '<strong>' + deployment.priority + ' PRIORITY:</strong> ' + (deployment.front || 'Protection') + '<br>';
+                        html += '<strong>Station:</strong> ' + deployment.station + '<br>';
+                        if (deployment.target) {
+                            html += '<strong>Target:</strong> ' + deployment.target + '<br>';
+                        }
+                        if (deployment.tactical_approach) {
+                            html += '<strong>Tactic:</strong> ' + deployment.tactical_approach + '<br>';
+                        }
+                        if (deployment.action) {
+                            html += '<strong>Action:</strong> ' + deployment.action + '<br>';
+                        }
+                        html += '<strong>Resources:</strong> ' + deployment.resources.join(', ');
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                }
+                
+                // Critical area threats
+                if (rec.critical_area_threats) {
+                    html += '<div class="critical-threats">';
+                    html += '<h5>🏠 Critical Area Threats</h5>';
+                    
+                    Object.keys(rec.critical_area_threats).forEach(function(category) {
+                        var threats = rec.critical_area_threats[category];
+                        if (threats && threats.length > 0) {
+                            html += '<div class="threat-category">';
+                            html += '<strong>' + category.replace('_', ' ').toUpperCase() + ':</strong>';
+                            threats.forEach(function(threat) {
+                                var threatColor = threat.threat_level >= 80 ? '#ff0000' : 
+                                                threat.threat_level >= 50 ? '#ff6600' : '#ffaa00';
+                                html += '<div style="margin: 3px 0; padding: 4px; background: ' + threatColor + '20; border: 1px solid ' + threatColor + ';">';
+                                html += '<strong>' + threat.area_name + '</strong> - Threat: ' + Math.round(threat.threat_level) + '%<br>';
+                                html += 'Distance: ' + threat.distance.toFixed(2) + ' km | Front: ' + (threat.threatening_front || 'Multiple') + '<br>';
+                                html += '<em>' + threat.recommended_action + '</em>';
+                                html += '</div>';
+                            });
+                            html += '</div>';
+                        }
+                    });
+                    html += '</div>';
+                }
+                html += '</div>';
+            }
+            
+            html += '<div class="recommendation">';
+            html += '<h4>🚨 Primary Response</h4>';
+            html += '<p><strong>Station:</strong> ' + rec.primary_response.station + '</p>';
+            html += '<p><strong>Distance:</strong> ' + rec.primary_response.distance_km + ' km</p>';
+            html += '<p><strong>ETA:</strong> ' + rec.primary_response.estimated_response_time + ' minutes</p>';
+            html += '</div>';
+            
+            html += '<div class="recommendation">';
+            html += '<h4>🚒 Vehicle Deployment</h4>';
+            rec.vehicle_deployment.forEach(function(vehicle) {
+                html += '<div class="vehicle-deployment">';
+                html += '<strong>Priority ' + vehicle.priority + ':</strong> ' + vehicle.vehicle_type;
+                html += '</div>';
+            });
+            html += '</div>';
+            
+            html += '<div class="recommendation">';
+            html += '<h4>⏱️ Response Timeline</h4>';
+            rec.timeline.forEach(function(phase) {
+                html += '<p><strong>' + phase.time_range + ':</strong></p>';
+                html += '<ul>';
+                phase.actions.forEach(function(action) {
+                    html += '<li>' + action + '</li>';
+                });
+                html += '</ul>';
+            });
+            html += '</div>';
+            
+            html += '</div>';
+            
+            statusDiv.innerHTML = html;
+        }
+        
+        function simulateFireGrowth(fireId, marker) {
+            var fireData = {
+                size: 0.05 + Math.random() * 0.05,  // 0.05-0.1 hectares initial
+                intensity: Math.floor(Math.random() * 60) + 20,
+                growthRate: 3.0 + Math.random() * 4.0, // 3.0-7.0 hectares/hour (much faster)
+                suppressionProgress: 0,
+                status: 'active',
+                startTime: new Date(),
+                lastUpdate: new Date(),
+                updateCount: 0,
+                containment: 0,
+                windDirection: Math.floor(Math.random() * 360),
+                windSpeed: 5 + Math.random() * 25,  // 5-30 km/h
+                shapeFactor: 0.6 + Math.random() * 0.6,  // 0.6-1.2 elliptical ratio
+                fireShape: null,
+                spotFires: []
+            };
+            
+            // Remove initial circular marker
+            map.removeLayer(marker);
+            
+            var growthInterval = setInterval(function() {
+                if (fireData.status === 'extinguished') {
+                    clearInterval(growthInterval);
+                    return;
+                }
+                
+                var currentTime = new Date();
+                var minutesElapsed = (currentTime - fireData.startTime) / (1000 * 60);
+                var timeElapsed = (currentTime - fireData.lastUpdate) / (1000 * 60 * 60); // hours
+                
+                // Much faster fire growth per update (scaled for visualization)
+                var hourlyGrowth = fireData.growthRate * timeElapsed * 20; // 20x speed for fast demo
+                
+                // Environmental factors affecting growth
+                var hour = currentTime.getHours();
+                var timeOfDayFactor = 1.0;
+                if (hour >= 12 && hour <= 16) timeOfDayFactor = 1.6; // Higher afternoon peak
+                else if (hour >= 22 || hour <= 6) timeOfDayFactor = 0.7; // Night slowdown
+                
+                // Apply growth with environmental factors
+                fireData.size += hourlyGrowth * timeOfDayFactor;
+                
+                // Update fire shape to be realistic (non-circular)
+                updateFireShape(fireData, marker.getLatLng());
+                
+                // Suppression starts after realistic response time (3-8 minutes)
+                if (minutesElapsed > (3 + Math.random() * 5)) {
+                    if (fireData.suppressionProgress === 0) {
+                        // First suppression units arrive
+                        var statusDiv = document.getElementById('fire-status');
+                        statusDiv.innerHTML += '<div style="background: #e3f2fd; padding: 8px; margin: 3px 0; border-radius: 3px;"><b>🚒 Suppression units arriving on scene!</b></div>';
+                    }
+                    
+                    // Realistic suppression progress (2-8% per update cycle)
+                    var suppressionRate = 2 + Math.random() * 6;
+                    fireData.suppressionProgress = Math.min(100, fireData.suppressionProgress + suppressionRate);
+                    
+                    // Suppression reduces growth rate
+                    hourlyGrowth *= (1 - fireData.suppressionProgress / 150);
+                    fireData.size += Math.max(0, hourlyGrowth);
+                    
+                    // Update containment
+                    fireData.containment = Math.min(100, fireData.suppressionProgress * 0.8);
+                }
+                
+                // Update intensity based on size and suppression
+                fireData.intensity = Math.max(5, 
+                    30 + (fireData.size * 8) - (fireData.suppressionProgress * 0.6)
+                );
+                
+                // Update fire shape color based on status and intensity
+                if (fireData.fireShape) {
+                    var color = '#ff4444';
+                    var fillColor = '#ff6600';
+                    
+                    if (fireData.containment > 75) {
+                        color = '#4444ff';
+                        fillColor = '#88ccff';
+                    } else if (fireData.containment > 50) {
+                        color = '#ff8800';
+                        fillColor = '#ffcc00';
+                    } else if (fireData.intensity > 70) {
+                        color = '#cc0000';
+                        fillColor = '#ff0000';
+                    }
+                    
+                    var opacity = Math.min(fireData.intensity / 100, 0.8);
+                    fireData.fireShape.setStyle({
+                        fillOpacity: 0.4 + (opacity * 0.4),
+                        color: color,
+                        fillColor: fillColor,
+                        weight: fireData.size > 1 ? 3 : 2
+                    });
+                }
+                
+                // Update popup with comprehensive live data
+                if (fireData.fireShape) {
+                    var popupContent = `
+                        <div style="min-width: 250px;">
+                            <b>🔥 Live Fire Incident</b><br>
+                            <b>ID:</b> ${fireId}<br>
+                            <b>Size:</b> ${fireData.size.toFixed(3)} hectares<br>
+                            <b>Perimeter:</b> ${Math.round(2 * Math.PI * Math.sqrt(fireData.size * 10000 / Math.PI))}m<br>
+                            <b>Intensity:</b> ${Math.round(fireData.intensity)}%<br>
+                            <b>Growth Rate:</b> ${fireData.growthRate.toFixed(1)} ha/hr<br>
+                            <b>Wind:</b> ${Math.round(fireData.windSpeed)} km/h @ ${Math.round(fireData.windDirection)}°<br>
+                            <b>Shape Factor:</b> ${fireData.shapeFactor.toFixed(2)}<br>
+                            <b>Spot Fires:</b> ${fireData.spotFires.length}<br>
+                            <b>Suppression:</b> ${Math.round(fireData.suppressionProgress)}%<br>
+                            <b>Containment:</b> ${Math.round(fireData.containment)}%<br>
+                            <b>Status:</b> ${fireData.status.toUpperCase()}<br>
+                            <b>Duration:</b> ${Math.round(minutesElapsed)} minutes<br>
+                            <b>Time Factor:</b> ${timeOfDayFactor.toFixed(1)}x
+                        </div>
+                    `;
+                    fireData.fireShape.setPopupContent(popupContent);
+                }
+                
+                // Generate updated recommendations every 2nd update (~10 seconds)
+                fireData.updateCount++;
+                if (fireData.updateCount % 2 === 0) {
+                    updateLiveRecommendations(fireId, fireData, minutesElapsed);
+                }
+                
+                // Status transitions
+                if (fireData.containment >= 100) {
+                    fireData.status = 'extinguished';
+                    
+                    var statusDiv = document.getElementById('fire-status');
+                    var extinguishedMsg = `
+                        <div style="background: #e8f5e8; padding: 12px; margin: 5px 0; border-radius: 5px; border-left: 4px solid green;">
+                            <b>✅ FIRE ${fireId} EXTINGUISHED</b><br>
+                            <b>Final Size:</b> ${fireData.size.toFixed(3)} hectares<br>
+                            <b>Duration:</b> ${Math.round(minutesElapsed)} minutes<br>
+                            <b>Peak Intensity:</b> ${Math.round(fireData.intensity)}%<br>
+                            <b>Resources:</b> Suppression successful
+                        </div>
+                    `;
+                    statusDiv.innerHTML += extinguishedMsg;
+                    statusDiv.scrollTop = statusDiv.scrollHeight;
+                    
+                    clearInterval(growthInterval);
+                } else if (fireData.containment >= 75) {
+                    fireData.status = 'controlled';
+                } else if (fireData.containment >= 50) {
+                    fireData.status = 'contained';
+                }
+                
+                fireData.lastUpdate = currentTime;
+                
+            }, 5000); // Update every 5 seconds for realistic pacing
+        }
+        
+        function updateLiveRecommendations(fireId, fireData, minutesElapsed) {
+            var recommendations = [];
+            
+            // Size-based recommendations
+            if (fireData.size > 2) {
+                recommendations.push('🚁 REQUEST: Aerial suppression resources');
+            }
+            
+            if (fireData.size > 5) {
+                recommendations.push('⚠️ MAJOR INCIDENT: Implement large fire protocols');
+            }
+            
+            // Intensity-based recommendations
+            if (fireData.intensity > 80) {
+                recommendations.push('🚒 URGENT: Deploy all available heavy suppression units');
+            } else if (fireData.intensity > 60) {
+                recommendations.push('🚒 ESCALATE: Additional suppression resources needed');
+            }
+            
+            // Progress-based recommendations
+            if (fireData.suppressionProgress > 0 && fireData.suppressionProgress < 30) {
+                recommendations.push('🎯 TACTICAL: Establish stronger perimeter control');
+            } else if (fireData.suppressionProgress >= 50) {
+                recommendations.push('✅ EFFECTIVE: Current suppression showing good progress');
+            }
+            
+            // Time-based recommendations
+            if (minutesElapsed > 30 && fireData.containment < 25) {
+                recommendations.push('📞 COORDINATE: Request mutual aid from neighboring departments');
+            }
+            
+            // Environmental recommendations
+            var hour = new Date().getHours();
+            if ((hour >= 12 && hour <= 16) && fireData.size > 1) {
+                recommendations.push('🌡️ WEATHER ALERT: Peak fire weather conditions - expect increased activity');
+            }
+            
+            if (recommendations.length === 0) {
+                recommendations.push('📋 MONITOR: Maintain current suppression operations');
+            }
+            
+            // Display live update
+            var statusDiv = document.getElementById('fire-status');
+            var updateHtml = `
+                <div style="background: linear-gradient(90deg, #fff3e0, #ffe0b2); padding: 10px; margin: 5px 0; border-radius: 5px; border-left: 4px solid #ff9800;">
+                    <b>📊 LIVE UPDATE - Fire ${fireId}</b> <small>(${Math.round(minutesElapsed)} min)</small><br>
+                    <div style="display: flex; justify-content: space-between; margin: 5px 0;">
+                        <span><b>Size:</b> ${fireData.size.toFixed(3)} ha</span>
+                        <span><b>Intensity:</b> ${Math.round(fireData.intensity)}%</span>
+                        <span><b>Contained:</b> ${Math.round(fireData.containment)}%</span>
+                    </div>
+                    <div style="margin-top: 8px;">
+                        <b>🎯 Live Priorities:</b><br>
+                        ${recommendations.map(r => `<div style="margin-left: 10px; font-size: 0.9em;">• ${r}</div>`).join('')}
+                    </div>
+                </div>
+            `;
+            statusDiv.innerHTML += updateHtml;
+            
+            // Auto-scroll to latest updates
+            statusDiv.scrollTop = statusDiv.scrollHeight;
+        }
+    </script>
+</body>
+</html>
