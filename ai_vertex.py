@@ -54,6 +54,26 @@ class InteractiveFireResponseSystem:
             'terrain_shape_factor': 2.5  # how terrain affects spread pattern
         }
         
+        # Advanced fuel type definitions for realistic fire behavior
+        self.fuel_types = {
+            'fynbos_dense': {'load': 4.5, 'moisture': 0.12, 'ignitability': 'high', 'heat_content': 8500},
+            'fynbos_sparse': {'load': 2.8, 'moisture': 0.15, 'ignitability': 'medium', 'heat_content': 7200},
+            'pine_plantation': {'load': 6.2, 'moisture': 0.18, 'ignitability': 'very_high', 'heat_content': 9200},
+            'indigenous_forest': {'load': 3.1, 'moisture': 0.25, 'ignitability': 'low', 'heat_content': 6800},
+            'grass_dry': {'load': 1.8, 'moisture': 0.08, 'ignitability': 'very_high', 'heat_content': 7800},
+            'grass_green': {'load': 1.2, 'moisture': 0.35, 'ignitability': 'low', 'heat_content': 5500},
+            'urban_vegetation': {'load': 2.2, 'moisture': 0.20, 'ignitability': 'medium', 'heat_content': 6500},
+            'scrubland': {'load': 3.5, 'moisture': 0.16, 'ignitability': 'high', 'heat_content': 7900}
+        }
+        
+        # Weather-driven fire behavior patterns
+        self.weather_patterns = {
+            'berg_wind': {'wind_speed': 25, 'humidity': 0.15, 'temperature': 38, 'pressure': 1015},
+            'southeaster': {'wind_speed': 35, 'humidity': 0.65, 'temperature': 22, 'pressure': 1020},
+            'calm_hot': {'wind_speed': 5, 'humidity': 0.25, 'temperature': 32, 'pressure': 1018},
+            'coastal_breeze': {'wind_speed': 12, 'humidity': 0.70, 'temperature': 24, 'pressure': 1022}
+        }
+        
         # Critical areas for multi-front analysis
         self.critical_areas = self.define_critical_areas()
         
@@ -151,25 +171,164 @@ class InteractiveFireResponseSystem:
         else:
             return "road"
     
-    def calculate_spread_vectors(self):
-        """Calculate realistic fire spread vectors in different directions"""
-        # 8 directional vectors (N, NE, E, SE, S, SW, W, NW)
-        directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+    def get_fuel_type(self, lat, lon, terrain):
+        """Determine fuel type based on location, terrain, and ecological zones"""
+        # Table Mountain ecological zones
+        if terrain == "coast":
+            return "fynbos_sparse"  # Coastal fynbos, salt-tolerant
+        elif terrain == "water":
+            return "grass_green"  # Riparian vegetation
+        elif terrain == "road":
+            # Urban interface areas
+            if lat > -33.93:  # Close to city
+                return "urban_vegetation"
+            else:
+                return "fynbos_sparse"
+        elif terrain == "rough":
+            # Mountain terrain classification
+            if -34.05 < lat < -33.95 and 18.35 < lon < 18.50:  # Table Mountain proper
+                elevation_factor = abs(lat + 33.95) * 100  # Rough elevation estimate
+                if elevation_factor > 8:  # Higher elevations
+                    return "fynbos_dense"
+                else:
+                    return "fynbos_sparse"
+            elif lon > 18.45:  # Eastern slopes with plantations
+                return "pine_plantation" if random.random() > 0.6 else "fynbos_dense"
+            elif lat < -34.0:  # Southern Peninsula
+                return "indigenous_forest" if random.random() > 0.7 else "fynbos_dense"
+            else:
+                return "scrubland"
+        
+        return "fynbos_sparse"  # Default
+    
+    def generate_weather_conditions(self, time_of_day=None):
+        """Generate realistic weather conditions for Cape Town fire scenarios"""
+        if time_of_day is None:
+            time_of_day = datetime.now().hour
+        
+        # Seasonal and time-based weather patterns
+        season_weights = {
+            'berg_wind': 0.25,  # Hot, dry mountain winds (fire danger!)
+            'southeaster': 0.35,  # Strong SE winds (summer)
+            'calm_hot': 0.25,    # High pressure, hot conditions
+            'coastal_breeze': 0.15  # Mild coastal influence
+        }
+        
+        # Adjust weights based on time of day
+        if 10 <= time_of_day <= 16:  # Peak fire weather hours
+            season_weights['berg_wind'] *= 2.0
+            season_weights['calm_hot'] *= 1.5
+        elif 18 <= time_of_day <= 6:  # Night/early morning
+            season_weights['coastal_breeze'] *= 2.0
+            season_weights['southeaster'] *= 0.5
+        
+        # Select weather pattern
+        pattern_choice = random.choices(
+            list(season_weights.keys()), 
+            weights=list(season_weights.values())
+        )[0]
+        
+        base_weather = self.weather_patterns[pattern_choice].copy()
+        
+        # Add realistic variations
+        base_weather['wind_speed'] += random.uniform(-5, 8)
+        base_weather['humidity'] += random.uniform(-0.1, 0.1)
+        base_weather['temperature'] += random.uniform(-3, 5)
+        
+        # Ensure realistic bounds
+        base_weather['wind_speed'] = max(2, min(50, base_weather['wind_speed']))
+        base_weather['humidity'] = max(0.05, min(0.95, base_weather['humidity']))
+        base_weather['temperature'] = max(8, min(45, base_weather['temperature']))
+        
+        # Calculate fire danger index
+        fire_danger = self.calculate_fire_danger_index(base_weather)
+        base_weather['fire_danger_index'] = fire_danger
+        base_weather['pattern_type'] = pattern_choice
+        
+        return base_weather
+    
+    def calculate_fire_danger_index(self, weather):
+        """Calculate fire danger index based on weather conditions"""
+        # Modified Haines Index for local conditions
+        temp_factor = min(weather['temperature'] / 40, 1.0)
+        humidity_factor = max((1.0 - weather['humidity']) * 1.5, 0)
+        wind_factor = min(weather['wind_speed'] / 30, 1.0)
+        
+        danger_index = (temp_factor * 0.4 + humidity_factor * 0.4 + wind_factor * 0.2) * 100
+        return min(100, max(0, danger_index))
+    
+    def calculate_spread_vectors(self, weather_conditions=None, fuel_type=None, terrain=None):
+        """Calculate realistic fire spread vectors based on weather, fuel, and terrain"""
+        if weather_conditions is None:
+            weather_conditions = self.generate_weather_conditions()
+        
+        # 16 directional vectors for more precise spread modeling
+        directions = [
+            'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+            'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'
+        ]
+        
         vectors = {}
         
-        for direction in directions:
-            # Base spread rate with random variation
-            base_rate = 0.8 + random.random() * 0.4  # 0.8 to 1.2 multiplier
+        # Get wind direction and speed effects
+        wind_speed = weather_conditions['wind_speed']
+        wind_direction = random.randint(0, 360)  # Primary wind direction
+        
+        for i, direction in enumerate(directions):
+            direction_angle = i * 22.5  # 360/16 = 22.5 degrees per direction
             
-            # Add directional preferences based on wind, terrain, etc.
-            if direction in ['NE', 'E', 'SE']:  # Common wind directions
-                base_rate *= 1.2 + random.random() * 0.3
-            elif direction in ['SW', 'W', 'NW']:  # Against prevailing wind
-                base_rate *= 0.7 + random.random() * 0.2
+            # Base spread rate with fuel-specific modifications
+            base_rate = 1.0
+            if fuel_type and fuel_type in self.fuel_types:
+                fuel_props = self.fuel_types[fuel_type]
+                ignitability_multipliers = {
+                    'very_high': 1.8, 'high': 1.4, 'medium': 1.0, 'low': 0.6
+                }
+                base_rate *= ignitability_multipliers.get(fuel_props['ignitability'], 1.0)
+                base_rate *= (fuel_props['load'] / 3.0)  # Fuel load effect
             
-            vectors[direction] = base_rate
+            # Wind effect calculation
+            wind_angle_diff = abs(direction_angle - wind_direction)
+            if wind_angle_diff > 180:
+                wind_angle_diff = 360 - wind_angle_diff
             
-        return vectors
+            # Wind enhancement/reduction
+            if wind_angle_diff <= 45:  # Downwind (enhanced spread)
+                wind_effect = 1.0 + (wind_speed / 30) * 2.0 * (1 - wind_angle_diff/45)
+            elif wind_angle_diff >= 135:  # Upwind (reduced spread)
+                wind_effect = 0.3 + (wind_angle_diff - 135) / 45 * 0.4
+            else:  # Crosswind (moderate effect)
+                crosswind_factor = 1 - abs(90 - wind_angle_diff) / 90
+                wind_effect = 0.7 + crosswind_factor * 0.6
+            
+            # Terrain effects
+            terrain_multiplier = 1.0
+            if terrain == "rough":
+                terrain_multiplier = 1.3  # Rough terrain can channel/accelerate fire
+            elif terrain == "coast":
+                terrain_multiplier = 0.8  # Salt air, higher humidity
+            elif terrain == "road":
+                terrain_multiplier = 0.9  # Some fuel reduction
+            
+            # Weather condition effects
+            humidity_effect = 2.0 - weather_conditions['humidity'] * 1.5
+            temperature_effect = 0.5 + (weather_conditions['temperature'] / 40)
+            
+            # Final spread vector
+            final_rate = (
+                base_rate * 
+                wind_effect * 
+                terrain_multiplier * 
+                humidity_effect * 
+                temperature_effect
+            )
+            
+            # Add some randomness for realistic variation
+            final_rate *= (0.8 + random.random() * 0.4)
+            
+            vectors[direction] = max(0.1, final_rate)
+            
+        return vectors, weather_conditions
     
     def define_critical_areas(self):
         """Define critical areas that require priority fire protection"""
@@ -196,55 +355,82 @@ class InteractiveFireResponseSystem:
         }
     
     def analyze_fire_fronts(self, fire):
-        """Analyze different fronts of the fire based on its realistic shape"""
+        """Enhanced multi-front fire analysis with terrain and weather considerations"""
         if "shape_points" not in fire:
-            # If no shape points yet, use basic analysis
-            return self.basic_front_analysis(fire)
+            return self.enhanced_basic_front_analysis(fire)
         
         shape_points = fire["shape_points"]
-        wind_direction = fire["wind_direction"]
+        weather_conditions = fire.get("weather_conditions", self.generate_weather_conditions())
+        fuel_type = fire.get("fuel_type", "fynbos_sparse")
         
-        # Divide fire perimeter into fronts
+        # Enhanced front classification with micro-climates
         fronts = {
-            "head_fire": [],      # Leading edge (downwind)
-            "flanking_fires": [], # Side edges
-            "backing_fire": [],   # Rear edge (upwind)
-            "spot_fires": fire.get("spot_fires", [])
+            "head_fire": [],      # Primary advancing front
+            "left_flank": [],     # Left flanking fire
+            "right_flank": [],    # Right flanking fire
+            "backing_fire": [],   # Backing/heel fire
+            "spot_fires": fire.get("spot_fires", []),
+            "fingers": [],        # Terrain-driven fire fingers
+            "barriers": []        # Natural/artificial fire barriers encountered
         }
         
-        # Classify each perimeter point into fronts based on wind direction
+        # Advanced front analysis with terrain effects
+        wind_direction = fire["wind_direction"]
+        terrain_influences = self.analyze_terrain_influences(fire["lat"], fire["lon"], 2.0)
+        
         for i, point in enumerate(shape_points):
-            # Calculate bearing from fire center to this point
             bearing = self.calculate_bearing(fire["lat"], fire["lon"], point["lat"], point["lon"])
             
-            # Determine front type based on bearing relative to wind direction
-            angle_diff = abs(bearing - wind_direction)
-            if angle_diff > 180:
-                angle_diff = 360 - angle_diff
-            
+            # Enhanced point analysis
             point_info = {
                 "lat": point["lat"], 
                 "lon": point["lon"],
                 "bearing": bearing,
                 "distance_from_center": self.calculate_distance(fire["lat"], fire["lon"], point["lat"], point["lon"]),
-                "threat_level": self.calculate_point_threat_level(point, fire)
+                "threat_level": self.calculate_enhanced_threat_level(point, fire),
+                "terrain": self.get_terrain_type(point["lat"], point["lon"]),
+                "fuel_type": self.get_fuel_type(point["lat"], point["lon"], self.get_terrain_type(point["lat"], point["lon"])),
+                "slope_factor": self.calculate_slope_effect(point, fire),
+                "residential_proximity": self.assess_residential_proximity(point),
+                "fuel_continuity": self.assess_fuel_continuity(point),
+                "spread_probability": self.calculate_spread_probability(point, fire, weather_conditions)
             }
             
-            if angle_diff <= 45:  # Within 45° of wind direction
+            # Enhanced front classification
+            angle_diff = abs(bearing - wind_direction)
+            if angle_diff > 180:
+                angle_diff = 360 - angle_diff
+            
+            # Classify based on wind direction and terrain
+            if angle_diff <= 30:  # Head fire (primary advance)
                 fronts["head_fire"].append(point_info)
-            elif angle_diff >= 135:  # Opposite to wind direction
+            elif angle_diff >= 150:  # Backing fire
                 fronts["backing_fire"].append(point_info)
-            else:  # Side areas
-                fronts["flanking_fires"].append(point_info)
+            elif 30 < angle_diff <= 90:
+                if (bearing - wind_direction + 360) % 360 < 180:
+                    fronts["right_flank"].append(point_info)
+                else:
+                    fronts["left_flank"].append(point_info)
+            else:  # Flanking areas
+                if (bearing - wind_direction + 360) % 360 < 180:
+                    fronts["right_flank"].append(point_info)
+                else:
+                    fronts["left_flank"].append(point_info)
+            
+            # Check for terrain-driven fingers
+            if point_info["slope_factor"] > 1.5 and point_info["fuel_continuity"] > 0.7:
+                fronts["fingers"].append(point_info)
         
-        # Calculate priority and threat assessment for each front
+        # Enhanced analysis for each front
         for front_name, points in fronts.items():
-            if front_name != "spot_fires" and points:
+            if front_name not in ["spot_fires", "barriers"] and points:
                 fronts[front_name] = {
                     "points": points,
-                    "priority": self.assess_front_priority(front_name, points, fire),
-                    "recommended_resources": self.recommend_front_resources(front_name, points, fire),
-                    "threat_assessment": self.assess_front_threats(points, fire)
+                    "priority": self.assess_enhanced_front_priority(front_name, points, fire),
+                    "growth_prediction": self.predict_front_growth(front_name, points, weather_conditions, fire),
+                    "recommended_resources": self.recommend_enhanced_front_resources(front_name, points, fire),
+                    "threat_assessment": self.assess_enhanced_front_threats(points, fire),
+                    "tactical_recommendations": self.generate_tactical_recommendations(front_name, points, fire)
                 }
         
         return fronts
@@ -579,15 +765,363 @@ class InteractiveFireResponseSystem:
         
         return spot_fires
     
+    def assess_residential_proximity(self, point):
+        """Assess proximity and threat to residential areas"""
+        residential_threat = {
+            "nearest_residential": None,
+            "distance_km": float('inf'),
+            "threat_level": "LOW",
+            "evacuation_priority": "NONE",
+            "structures_at_risk": 0,
+            "vulnerable_populations": [],
+            "access_routes": [],
+            "fire_break_adequacy": "UNKNOWN"
+        }
+        
+        for zone in self.critical_areas["residential_zones"]:
+            distance = self.calculate_distance(point["lat"], point["lon"], zone["lat"], zone["lon"])
+            
+            if distance < residential_threat["distance_km"]:
+                residential_threat["nearest_residential"] = zone["name"]
+                residential_threat["distance_km"] = distance
+                
+                # Detailed threat assessment
+                if distance < 0.3:  # Within 300m
+                    residential_threat["threat_level"] = "CRITICAL"
+                    residential_threat["evacuation_priority"] = "IMMEDIATE"
+                    residential_threat["structures_at_risk"] = 50 + random.randint(0, 150)
+                elif distance < 0.8:  # Within 800m
+                    residential_threat["threat_level"] = "HIGH"
+                    residential_threat["evacuation_priority"] = "URGENT"
+                    residential_threat["structures_at_risk"] = 20 + random.randint(0, 80)
+                elif distance < 1.5:  # Within 1.5km
+                    residential_threat["threat_level"] = "MEDIUM"
+                    residential_threat["evacuation_priority"] = "STANDBY"
+                    residential_threat["structures_at_risk"] = 5 + random.randint(0, 30)
+                else:
+                    residential_threat["threat_level"] = "LOW"
+                    residential_threat["evacuation_priority"] = "MONITOR"
+                    residential_threat["structures_at_risk"] = random.randint(0, 10)
+                
+                # Assess vulnerable populations
+                vulnerable_types = []
+                if "Residential" in zone["name"]:
+                    if random.random() > 0.7:
+                        vulnerable_types.append("Elderly residents")
+                    if random.random() > 0.8:
+                        vulnerable_types.append("Mobility-impaired residents")
+                    if random.random() > 0.9:
+                        vulnerable_types.append("Families with young children")
+                
+                residential_threat["vulnerable_populations"] = vulnerable_types
+                
+                # Assess access routes
+                access_routes = []
+                if distance < 1.0:
+                    route_count = random.randint(1, 3)
+                    route_names = ["Main Road Access", "Secondary Route", "Emergency Access Road", "Mountain Path"]
+                    access_routes = random.sample(route_names, min(route_count, len(route_names)))
+                
+                residential_threat["access_routes"] = access_routes
+                
+                # Fire break adequacy
+                if distance < 0.5:
+                    adequacy_options = ["INADEQUATE", "MINIMAL", "MODERATE"]
+                    residential_threat["fire_break_adequacy"] = random.choice(adequacy_options)
+                elif distance < 1.0:
+                    adequacy_options = ["MINIMAL", "MODERATE", "ADEQUATE"]
+                    residential_threat["fire_break_adequacy"] = random.choice(adequacy_options)
+                else:
+                    residential_threat["fire_break_adequacy"] = "ADEQUATE"
+        
+        return residential_threat
+    
+    def assess_fuel_continuity(self, point):
+        """Assess fuel continuity and fire spread potential around a point"""
+        fuel_assessment = {
+            "continuity_score": 0.0,
+            "fuel_breaks": [],
+            "high_risk_fuels": [],
+            "fuel_moisture_zones": {},
+            "ladder_fuels_present": False,
+            "crown_fire_potential": "LOW"
+        }
+        
+        # Sample surrounding area (500m radius)
+        sample_points = self.generate_sample_points_around(point, radius_km=0.5, num_points=8)
+        
+        fuel_types_detected = []
+        total_load = 0
+        moisture_levels = []
+        
+        for sample_point in sample_points:
+            terrain = self.get_terrain_type(sample_point["lat"], sample_point["lon"])
+            fuel_type = self.get_fuel_type(sample_point["lat"], sample_point["lon"], terrain)
+            fuel_types_detected.append(fuel_type)
+            
+            if fuel_type in self.fuel_types:
+                fuel_props = self.fuel_types[fuel_type]
+                total_load += fuel_props["load"]
+                moisture_levels.append(fuel_props["moisture"])
+        
+        # Calculate continuity score
+        if fuel_types_detected:
+            # High continuity if similar fuel types
+            most_common_fuel = max(set(fuel_types_detected), key=fuel_types_detected.count)
+            continuity_count = fuel_types_detected.count(most_common_fuel)
+            fuel_assessment["continuity_score"] = continuity_count / len(fuel_types_detected)
+            
+            # Average fuel load and moisture
+            avg_load = total_load / len(sample_points)
+            avg_moisture = sum(moisture_levels) / len(moisture_levels) if moisture_levels else 0.2
+            
+            # Identify fuel breaks (areas with low fuel load)
+            for i, fuel_type in enumerate(fuel_types_detected):
+                if fuel_type in ["grass_green", "urban_vegetation"] or "water" in fuel_type:
+                    fuel_assessment["fuel_breaks"].append(f"Natural break at {i*45}° bearing")
+            
+            # Identify high-risk fuels
+            high_risk_fuels = ["pine_plantation", "fynbos_dense", "grass_dry"]
+            for fuel_type in fuel_types_detected:
+                if fuel_type in high_risk_fuels:
+                    fuel_assessment["high_risk_fuels"].append(fuel_type)
+            
+            # Moisture zone mapping
+            fuel_assessment["fuel_moisture_zones"] = {
+                "very_dry": sum(1 for m in moisture_levels if m < 0.10),
+                "dry": sum(1 for m in moisture_levels if 0.10 <= m < 0.20),
+                "moderate": sum(1 for m in moisture_levels if 0.20 <= m < 0.30),
+                "moist": sum(1 for m in moisture_levels if m >= 0.30)
+            }
+            
+            # Ladder fuels assessment (vegetation that can carry fire to tree crowns)
+            if "pine_plantation" in fuel_types_detected or "indigenous_forest" in fuel_types_detected:
+                fuel_assessment["ladder_fuels_present"] = random.random() > 0.4
+            
+            # Crown fire potential
+            if avg_load > 4.0 and avg_moisture < 0.15 and fuel_assessment["ladder_fuels_present"]:
+                fuel_assessment["crown_fire_potential"] = "HIGH"
+            elif avg_load > 3.0 and avg_moisture < 0.20:
+                fuel_assessment["crown_fire_potential"] = "MEDIUM"
+            else:
+                fuel_assessment["crown_fire_potential"] = "LOW"
+        
+        return fuel_assessment
+    
+    def generate_sample_points_around(self, center_point, radius_km=0.5, num_points=8):
+        """Generate sample points around a center point for analysis"""
+        points = []
+        for i in range(num_points):
+            angle = (i * 360 / num_points) * math.pi / 180  # Convert to radians
+            
+            # Approximate lat/lon offset (rough calculation)
+            lat_offset = (radius_km / 111.0) * math.cos(angle)
+            lon_offset = (radius_km / (111.0 * math.cos(math.radians(center_point["lat"])))) * math.sin(angle)
+            
+            sample_point = {
+                "lat": center_point["lat"] + lat_offset,
+                "lon": center_point["lon"] + lon_offset
+            }
+            points.append(sample_point)
+        
+        return points
+    
+    def calculate_enhanced_threat_level(self, point, fire):
+        """Enhanced threat level calculation including residential and fuel factors"""
+        base_threat_result = self.calculate_point_threat_level(point, fire)
+        base_threat = base_threat_result["level"]
+        
+        # Enhanced assessments
+        residential_assessment = self.assess_residential_proximity(point)
+        fuel_assessment = self.assess_fuel_continuity(point)
+        
+        # Adjust threat based on residential proximity
+        residential_multipliers = {"CRITICAL": 2.0, "HIGH": 1.5, "MEDIUM": 1.2, "LOW": 1.0}
+        residential_multiplier = residential_multipliers.get(residential_assessment["threat_level"], 1.0)
+        
+        # Adjust threat based on fuel continuity and crown fire potential
+        fuel_multiplier = 1.0
+        if fuel_assessment["crown_fire_potential"] == "HIGH":
+            fuel_multiplier = 1.8
+        elif fuel_assessment["crown_fire_potential"] == "MEDIUM":
+            fuel_multiplier = 1.4
+        
+        # Additional multiplier for high-risk fuel types
+        if len(fuel_assessment["high_risk_fuels"]) > 2:
+            fuel_multiplier *= 1.3
+        
+        enhanced_threat = min(100, base_threat * residential_multiplier * fuel_multiplier)
+        
+        return {
+            "level": enhanced_threat,
+            "base_threat": base_threat,
+            "residential_factor": residential_assessment,
+            "fuel_factor": fuel_assessment,
+            "nearest_critical": base_threat_result["nearest_critical"],
+            "distance_to_critical": base_threat_result["distance_to_critical"]
+        }
+    
+    def predict_front_growth(self, front_name, points, weather_conditions, fire):
+        """Predict how this fire front will grow over the next few hours"""
+        growth_prediction = {
+            "projected_size_1hr": 0,
+            "projected_size_3hr": 0,
+            "projected_size_6hr": 0,
+            "growth_direction": "variable",
+            "expected_behavior": "moderate",
+            "residential_threat_timeline": {},
+            "fuel_exhaustion_zones": []
+        }
+        
+        if not points:
+            return growth_prediction
+        
+        # Calculate average growth factors for this front
+        avg_fuel_continuity = sum(
+            p.get("fuel_continuity", {}).get("continuity_score", 0.5) 
+            for p in points
+        ) / len(points)
+        
+        avg_slope_factor = sum(
+            p.get("slope_factor", 1.0) 
+            for p in points
+        ) / len(points)
+        
+        # Base growth rate from weather and terrain
+        base_growth_rate = fire["growth_rate"]
+        
+        # Front-specific growth multipliers
+        front_multipliers = {
+            "head_fire": 1.8,      # Fastest growth
+            "left_flank": 0.7,     # Moderate flanking growth
+            "right_flank": 0.7,    # Moderate flanking growth
+            "backing_fire": 0.3,   # Slow backing growth
+            "fingers": 1.4         # Fast in terrain channels
+        }
+        
+        front_multiplier = front_multipliers.get(front_name, 1.0)
+        
+        # Calculate projected growth
+        effective_growth_rate = (
+            base_growth_rate * 
+            front_multiplier * 
+            avg_fuel_continuity * 
+            avg_slope_factor *
+            (1 + weather_conditions.get("fire_danger_index", 50) / 100)
+        )
+        
+        # Time projections
+        growth_prediction["projected_size_1hr"] = effective_growth_rate * 1
+        growth_prediction["projected_size_3hr"] = effective_growth_rate * 3 * 0.8  # Slightly slower over time
+        growth_prediction["projected_size_6hr"] = effective_growth_rate * 6 * 0.6  # Further slowdown
+        
+        # Growth direction based on wind and terrain
+        if weather_conditions.get("wind_speed", 0) > 20:
+            growth_prediction["growth_direction"] = f"Primarily downwind (wind: {weather_conditions['wind_speed']:.0f} km/h)"
+        else:
+            growth_prediction["growth_direction"] = "Multi-directional based on terrain"
+        
+        # Expected behavior
+        if effective_growth_rate > 8:
+            growth_prediction["expected_behavior"] = "aggressive"
+        elif effective_growth_rate > 4:
+            growth_prediction["expected_behavior"] = "active"
+        else:
+            growth_prediction["expected_behavior"] = "moderate"
+        
+        # Residential threat timeline
+        for point in points:
+            residential_info = point.get("residential_proximity", {})
+            if residential_info.get("distance_km", float('inf')) < 2.0:
+                area_name = residential_info.get("nearest_residential", "Unknown Area")
+                time_to_threat = residential_info["distance_km"] / (effective_growth_rate / 5)  # Rough estimate
+                
+                if time_to_threat < 1:
+                    growth_prediction["residential_threat_timeline"][area_name] = "< 1 hour"
+                elif time_to_threat < 3:
+                    growth_prediction["residential_threat_timeline"][area_name] = f"~{time_to_threat:.1f} hours"
+                else:
+                    growth_prediction["residential_threat_timeline"][area_name] = "> 3 hours"
+        
+        return growth_prediction
+    
+    def generate_tactical_recommendations(self, front_name, points, fire):
+        """Generate specific tactical recommendations for each fire front"""
+        recommendations = []
+        
+        if not points:
+            return recommendations
+        
+        # Analyze the characteristics of this front
+        avg_residential_threat = sum(
+            1 if p.get("residential_proximity", {}).get("threat_level") in ["HIGH", "CRITICAL"] else 0
+            for p in points
+        ) / len(points)
+        
+        high_fuel_load_points = sum(
+            1 if len(p.get("fuel_continuity", {}).get("high_risk_fuels", [])) > 0 else 0
+            for p in points
+        )
+        
+        crown_fire_risk = sum(
+            1 if p.get("fuel_continuity", {}).get("crown_fire_potential") == "HIGH" else 0
+            for p in points
+        )
+        
+        # Front-specific tactical recommendations
+        if front_name == "head_fire":
+            recommendations.append("🎯 HEAD FIRE: Primary attack priority - deploy heaviest resources")
+            recommendations.append("🚁 Consider aerial attack if ground access is limited")
+            
+            if avg_residential_threat > 0.3:
+                recommendations.append("🏠 URGENT: Structure protection teams needed - residential threat imminent")
+                recommendations.append("📢 Initiate evacuation procedures for threatened areas")
+            
+            if crown_fire_risk > len(points) * 0.4:
+                recommendations.append("🌲 CROWN FIRE RISK: Use foam/retardant, avoid direct attack in heavy fuels")
+        
+        elif front_name in ["left_flank", "right_flank"]:
+            recommendations.append(f"🔄 {front_name.upper()}: Secondary priority - contain flanking spread")
+            recommendations.append("👥 Deploy ground crews for containment line construction")
+            
+            if high_fuel_load_points > len(points) * 0.5:
+                recommendations.append("⚠️ High fuel loads detected - expect rapid spread in this sector")
+                recommendations.append("🛡️ Establish safety zones and escape routes")
+        
+        elif front_name == "backing_fire":
+            recommendations.append("🐌 BACKING FIRE: Lowest priority - slow growth expected")
+            recommendations.append("👀 Monitor only unless threatening critical areas")
+            
+            if avg_residential_threat > 0:
+                recommendations.append("🏘️ Monitor residential proximity - back fires can change direction")
+        
+        elif front_name == "fingers":
+            recommendations.append("⚡ FIRE FINGERS: Terrain-driven rapid spread - high priority")
+            recommendations.append("🚧 Focus on blocking terrain corridors and channels")
+            recommendations.append("💨 Expect accelerated spread rates in these areas")
+        
+        # Fuel-specific recommendations
+        if high_fuel_load_points > len(points) * 0.6:
+            recommendations.append("🔥 Heavy fuel loads: Use indirect attack methods, create wide firebreaks")
+            recommendations.append("💧 Increase water/foam application rates")
+        
+        # Add general safety recommendations
+        if crown_fire_risk > 0:
+            recommendations.append("⚠️ SAFETY: Crown fire potential - maintain safe distances, watch for spotting")
+        
+        return recommendations
+    
     def start_fire(self, lat, lon, initial_intensity=None, weather_factor=1.0):
         """Start a new fire at clicked coordinates with realistic parameters"""
         fire_id = f"fire_{len(self.active_fires) + 1}_{int(time.time())}"
         
         terrain = self.get_terrain_type(lat, lon)
+        fuel_type = self.get_fuel_type(lat, lon, terrain)
+        weather_conditions = self.generate_weather_conditions()
         
         # Realistic initial conditions
         if initial_intensity is None:
-            # Random initial intensity based on ignition source
+            # Random initial intensity based on ignition source and conditions
             ignition_types = {
                 'small': (10, 30),   # Cigarette, small campfire
                 'medium': (30, 60),  # Lightning, electrical
@@ -595,9 +1129,24 @@ class InteractiveFireResponseSystem:
             }
             ignition_type = random.choice(['small', 'medium', 'large'])
             min_int, max_int = ignition_types[ignition_type]
-            initial_intensity = random.randint(min_int, max_int)
+            base_intensity = random.randint(min_int, max_int)
+            
+            # Adjust for weather conditions and fuel type
+            weather_multiplier = 1.0 + (weather_conditions.get('fire_danger_index', 50) / 100)
+            fuel_multiplier = 1.0
+            if fuel_type in self.fuel_types:
+                fuel_props = self.fuel_types[fuel_type]
+                ignitability_multipliers = {
+                    'very_high': 1.5, 'high': 1.2, 'medium': 1.0, 'low': 0.8
+                }
+                fuel_multiplier = ignitability_multipliers.get(fuel_props['ignitability'], 1.0)
+            
+            initial_intensity = min(100, base_intensity * weather_multiplier * fuel_multiplier)
         
         initial_size = 0.01 + (random.random() * 0.09)  # 0.01 to 0.1 hectares
+        
+        # Enhanced spread vectors with weather and fuel considerations
+        spread_vectors, final_weather = self.calculate_spread_vectors(weather_conditions, fuel_type, terrain)
         
         fire_data = {
             "id": fire_id,
@@ -610,20 +1159,27 @@ class InteractiveFireResponseSystem:
             "perimeter": math.sqrt(initial_size) * 112,  # Approximate perimeter in meters
             "growth_rate": self.calculate_growth_rate(terrain, weather_factor, initial_size),
             "terrain": terrain,
+            "fuel_type": fuel_type,
+            "weather_conditions": final_weather,
             "weather_factor": weather_factor,
             "status": "active",
             "suppression_progress": 0.0,
             "suppression_start_time": None,
-            "wind_direction": random.randint(0, 360),  # degrees
-            "wind_speed": 5 + random.random() * 25,  # km/h (5-30 km/h)
+            "wind_direction": final_weather.get('wind_direction', random.randint(0, 360)),
+            "wind_speed": final_weather.get('wind_speed', 15),
             "shape_factor": random.uniform(0.6, 1.2),  # elliptical ratio
-            "spread_vectors": self.calculate_spread_vectors(),  # directional spread
+            "spread_vectors": spread_vectors,  # Enhanced directional spread
             "spot_fires": [],  # secondary fires from embers
-            "fuel_moisture": 0.1 + random.random() * 0.3,  # 10-40%
+            "fuel_moisture": self.fuel_types.get(fuel_type, {}).get('moisture', 0.2),
             "slope_factor": 1.0 + (random.random() * 0.5),  # terrain slope effect
             "containment_percentage": 0.0,
             "resources_deployed": [],
-            "next_recommendation_time": datetime.now() + timedelta(minutes=2)
+            "next_recommendation_time": datetime.now() + timedelta(minutes=2),
+            # Enhanced fire tracking
+            "ignition_type": ignition_type if 'ignition_type' in locals() else 'unknown',
+            "fire_danger_rating": self.get_fire_danger_rating(final_weather),
+            "initial_fuel_assessment": self.assess_fuel_continuity({"lat": lat, "lon": lon}),
+            "initial_residential_threat": self.assess_residential_proximity({"lat": lat, "lon": lon})
         }
         
         self.active_fires[fire_id] = fire_data
@@ -631,6 +1187,144 @@ class InteractiveFireResponseSystem:
         
         # Return fire info without immediate analysis to avoid method issues
         return fire_id
+    
+    def get_fire_danger_rating(self, weather_conditions):
+        """Convert fire danger index to rating category"""
+        danger_index = weather_conditions.get('fire_danger_index', 50)
+        
+        if danger_index >= 80:
+            return "EXTREME"
+        elif danger_index >= 65:
+            return "VERY_HIGH"
+        elif danger_index >= 50:
+            return "HIGH"
+        elif danger_index >= 35:
+            return "MODERATE"
+        else:
+            return "LOW"
+    
+    def calculate_slope_effect(self, point, fire):
+        """Calculate slope effect on fire spread at a specific point"""
+        # Simulate elevation difference from fire center
+        center_terrain = fire["terrain"]
+        point_terrain = self.get_terrain_type(point["lat"], point["lon"])
+        
+        # Rough elevation estimation based on terrain and distance from center
+        distance_km = self.calculate_distance(fire["lat"], fire["lon"], point["lat"], point["lon"])
+        
+        if point_terrain == "rough" and center_terrain != "rough":
+            elevation_diff = random.uniform(50, 300)  # Uphill
+        elif center_terrain == "rough" and point_terrain != "rough":
+            elevation_diff = random.uniform(-300, -50)  # Downhill
+        else:
+            elevation_diff = random.uniform(-50, 50)  # Relatively flat
+        
+        slope_percent = abs(elevation_diff) / (distance_km * 1000) * 100 if distance_km > 0 else 0
+        
+        # Uphill fires spread faster, downhill fires spread slower
+        if elevation_diff > 0:  # Uphill
+            return 1.0 + (slope_percent / 100 * 3)  # Can triple spread rate on steep slopes
+        else:  # Downhill or flat
+            return max(0.3, 1.0 - (slope_percent / 100 * 0.5))  # Slower downhill
+    
+    def calculate_spread_probability(self, point, fire, weather_conditions):
+        """Calculate probability of fire spread to a specific point"""
+        base_probability = 0.5
+        
+        # Fuel type effect
+        fuel_type = self.get_fuel_type(point["lat"], point["lon"], self.get_terrain_type(point["lat"], point["lon"]))
+        if fuel_type in self.fuel_types:
+            fuel_props = self.fuel_types[fuel_type]
+            ignitability_effects = {
+                'very_high': 1.8, 'high': 1.4, 'medium': 1.0, 'low': 0.6
+            }
+            base_probability *= ignitability_effects.get(fuel_props['ignitability'], 1.0)
+            
+            # Moisture effect
+            moisture_effect = 2.0 - (fuel_props['moisture'] * 3)
+            base_probability *= max(0.2, moisture_effect)
+        
+        # Weather effects
+        wind_effect = 1.0 + (weather_conditions['wind_speed'] / 50)
+        humidity_effect = 2.0 - weather_conditions['humidity']
+        temperature_effect = weather_conditions['temperature'] / 30
+        
+        weather_multiplier = wind_effect * humidity_effect * temperature_effect
+        base_probability *= weather_multiplier
+        
+        # Distance from fire center (closer = higher probability)
+        distance = self.calculate_distance(fire["lat"], fire["lon"], point["lat"], point["lon"])
+        distance_effect = max(0.1, 1.0 - (distance / 2.0))  # Decreases with distance
+        
+        final_probability = min(1.0, base_probability * distance_effect)
+        return max(0.0, final_probability)
+    
+    def analyze_terrain_influences(self, center_lat, center_lon, radius_km):
+        """Analyze terrain influences on fire behavior"""
+        terrain_analysis = {
+            "slope_effects": {},
+            "wind_channeling": [],
+            "natural_barriers": [],
+            "fire_corridors": [],
+            "elevation_profile": {}
+        }
+        
+        # Sample terrain in different directions
+        directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+        
+        for direction in directions:
+            angle = directions.index(direction) * 45 * math.pi / 180
+            
+            # Calculate sample point
+            lat_offset = (radius_km / 111.0) * math.cos(angle)
+            lon_offset = (radius_km / (111.0 * math.cos(math.radians(center_lat)))) * math.sin(angle)
+            
+            sample_lat = center_lat + lat_offset
+            sample_lon = center_lon + lon_offset
+            
+            terrain = self.get_terrain_type(sample_lat, sample_lon)
+            
+            # Simulate elevation differences (Table Mountain has significant relief)
+            if terrain == "rough":
+                elevation_diff = random.uniform(-200, 500)  # Meters
+            elif terrain == "coast":
+                elevation_diff = random.uniform(-10, 50)
+            else:
+                elevation_diff = random.uniform(0, 100)
+            
+            slope_percent = abs(elevation_diff) / (radius_km * 1000) * 100
+            
+            terrain_analysis["slope_effects"][direction] = {
+                "slope_percent": slope_percent,
+                "elevation_diff_m": elevation_diff,
+                "fire_spread_multiplier": 1.0 + (slope_percent / 100 * 2) if elevation_diff > 0 else 1.0,
+                "terrain_type": terrain
+            }
+            
+            # Identify wind channeling effects
+            if terrain == "rough" and slope_percent > 15:
+                terrain_analysis["wind_channeling"].append({
+                    "direction": direction,
+                    "effect": "Strong channeling expected",
+                    "multiplier": 1.5 + (slope_percent / 100)
+                })
+            
+            # Natural barriers
+            if terrain == "water" or (terrain == "coast" and elevation_diff < -5):
+                terrain_analysis["natural_barriers"].append({
+                    "direction": direction,
+                    "type": "Water body" if terrain == "water" else "Coastal cliff",
+                    "effectiveness": "HIGH"
+                })
+            
+            # Fire corridors (areas that channel fire)
+            if terrain == "rough" and 5 < slope_percent < 20:
+                terrain_analysis["fire_corridors"].append({
+                    "direction": direction,
+                    "risk_level": "HIGH" if slope_percent > 12 else "MEDIUM"
+                })
+        
+        return terrain_analysis
     
     def calculate_growth_rate(self, terrain, weather_factor, fire_size=0.1):
         """Calculate realistic fire growth rate based on multiple factors"""
